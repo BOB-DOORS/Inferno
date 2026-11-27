@@ -19,7 +19,6 @@ import kotlinx.serialization.json.buildJsonObject
  * model cannot accidentally leak raw tool syntax into the chat bubble.
  */
 internal class ResearchCommandParser(
-    private val fallbackQuery: String = "",
     private val maxCommands: Int = MAX_COMMANDS,
 ) {
     private enum class Mode {
@@ -41,6 +40,8 @@ internal class ResearchCommandParser(
     private val commands = ArrayList<ResearchToolCall>()
 
     val calls: List<ResearchToolCall> get() = commands.toList()
+    var needsTextFallback: Boolean = false
+        private set
 
     fun accept(fragment: String): String {
         if (mode == Mode.TEXT) return fragment
@@ -77,12 +78,13 @@ internal class ResearchCommandParser(
         // A few small models omit a closing tag after a complete JSON object. Parse only a complete JSON
         // object here; malformed or truncated command text is restored as ordinary visible text.
         when (mode) {
-            Mode.TAG_BODY -> parseTagBody(body.toString())
-            Mode.LEGACY_BODY -> parseLegacyBody(body.toString())
+            Mode.TAG_BODY -> if (!parseTagBody(body.toString())) needsTextFallback = true
+            Mode.LEGACY_BODY -> if (!parseLegacyBody(body.toString())) needsTextFallback = true
+            Mode.LEGACY_SINGLE_HEADER, Mode.LEGACY_DOUBLE_HEADER -> needsTextFallback = true
             else -> Unit
         }
 
-        if (commands.isNotEmpty()) return ""
+        if (commands.isNotEmpty() || needsTextFallback) return ""
         return when (mode) {
             Mode.PROBE, Mode.PROBE_NEXT -> candidate.toString()
             Mode.TAG_BODY -> "<search>" + body
@@ -142,25 +144,25 @@ internal class ResearchCommandParser(
             body.setLength(body.length - TAG_END.length)
             if (parseTagBody(body.toString())) {
                 mode = Mode.AFTER_COMMAND
-            } else if (commands.isEmpty()) {
-                visible.append(TAG_START).append(body).append(TAG_END)
-                mode = Mode.TEXT
             } else {
+                needsTextFallback = true
                 mode = Mode.SUPPRESS
             }
             body.setLength(0)
         } else if (body.length > MAX_PAYLOAD_CHARS) {
-            if (commands.isEmpty()) visible.append(TAG_START).append(body)
+            needsTextFallback = commands.isEmpty()
             body.setLength(0)
-            mode = if (commands.isEmpty()) Mode.TEXT else Mode.SUPPRESS
+            mode = Mode.SUPPRESS
         }
     }
 
     private fun acceptSingleHeader(character: Char, visible: StringBuilder) {
         if (character == ']') {
-            addLegacyCall(header.toString())
+            // The single-bracket legacy marker carries no arguments. Hide it and fall back to normal
+            // answer generation instead of guessing that every prompt (including "hi") needs web search.
+            needsTextFallback = true
             header.setLength(0)
-            mode = if (commands.isEmpty()) Mode.TEXT else Mode.AFTER_COMMAND
+            mode = Mode.SUPPRESS
         } else {
             header.append(character)
             if (header.length > MAX_TOOL_NAME_CHARS) {
@@ -178,9 +180,9 @@ internal class ResearchCommandParser(
             body.setLength(0)
             mode = Mode.LEGACY_BODY
         } else if (header.length > MAX_TOOL_NAME_CHARS) {
-            if (commands.isEmpty()) visible.append(LEGACY_DOUBLE_START).append(header)
+            needsTextFallback = commands.isEmpty()
             header.setLength(0)
-            mode = if (commands.isEmpty()) Mode.TEXT else Mode.SUPPRESS
+            mode = Mode.SUPPRESS
         }
     }
 
@@ -190,18 +192,16 @@ internal class ResearchCommandParser(
             body.setLength(body.length - LEGACY_END.length)
             if (parseLegacyBody(body.toString())) {
                 mode = Mode.AFTER_COMMAND
-            } else if (commands.isEmpty()) {
-                visible.append(LEGACY_DOUBLE_START).append(header).append("]]").append(body).append(LEGACY_END)
-                mode = Mode.TEXT
             } else {
+                needsTextFallback = true
                 mode = Mode.SUPPRESS
             }
             body.setLength(0)
             header.setLength(0)
         } else if (body.length > MAX_PAYLOAD_CHARS) {
-            if (commands.isEmpty()) visible.append(LEGACY_DOUBLE_START).append(header).append("]]").append(body)
+            needsTextFallback = commands.isEmpty()
             body.setLength(0)
-            mode = if (commands.isEmpty()) Mode.TEXT else Mode.SUPPRESS
+            mode = Mode.SUPPRESS
         }
     }
 
@@ -242,12 +242,6 @@ internal class ResearchCommandParser(
         val name = header.toString().trim().ifBlank { "search_web" }
         val args = arguments["arguments"] as? JsonObject ?: arguments
         return addCall(name, args)
-    }
-
-    private fun addLegacyCall(rawName: String): Boolean {
-        val name = rawName.trim().removeSuffix("]]").trim()
-        if (name.isBlank()) return false
-        return addCall(name, queryArguments(fallbackQuery))
     }
 
     private fun addCall(rawName: String, arguments: JsonObject): Boolean {
