@@ -78,8 +78,8 @@ internal class ResearchCommandParser(
 
     /** Returns any incomplete ordinary text that was held while checking for a command prefix. */
     fun finish(): String {
-        // A few small models omit a closing tag after a complete JSON object. Parse only a complete JSON
-        // object here; malformed or truncated command text is restored as ordinary visible text.
+        // A few small models omit a closing tag after a complete JSON object. Accept only complete arguments;
+        // malformed or truncated command text is hidden and retried in direct-answer mode.
         when (mode) {
             Mode.TAG_BODY -> if (!parseTagBody(body.toString())) needsTextFallback = true
             Mode.LEGACY_BODY -> if (!parseLegacyBody(body.toString())) needsTextFallback = true
@@ -174,9 +174,9 @@ internal class ResearchCommandParser(
         } else {
             header.append(character)
             if (header.length > MAX_TOOL_NAME_CHARS) {
-                if (commands.isEmpty()) visible.append(LEGACY_SINGLE_START).append(header)
+                needsTextFallback = commands.isEmpty()
                 header.setLength(0)
-                mode = if (commands.isEmpty()) Mode.TEXT else Mode.SUPPRESS
+                mode = Mode.SUPPRESS
             }
         }
     }
@@ -219,8 +219,11 @@ internal class ResearchCommandParser(
         }.getOrNull()
 
         if (parsed == null) {
-            val query = raw.trim().take(MAX_QUERY_CHARS)
-            return addCall("search_web", queryArguments(query))
+            val query = raw.trim()
+            // Plain text is a supported search shorthand. A malformed JSON-looking payload is not:
+            // treating a truncated object as a query would trigger a pointless network request.
+            if (query.startsWith("{") || query.startsWith("[")) return false
+            return addCall("search_web", queryArguments(query.take(MAX_QUERY_CHARS)))
         }
 
         val tool = parsed.string("tool") ?: parsed.string("name") ?: "search_web"
