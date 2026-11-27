@@ -8,7 +8,10 @@ import kotlinx.serialization.json.jsonPrimitive
 
 internal data class ResearchToolCall(val name: String, val arguments: JsonObject) {
     fun string(key: String, fallback: String = ""): String =
-        arguments[key]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank) ?: fallback
+        arguments[key]
+            ?.let { value -> runCatching { value.jsonPrimitive.contentOrNull }.getOrNull() }
+            ?.takeIf(String::isNotBlank)
+            ?: fallback
 }
 
 internal data class ResearchSource(
