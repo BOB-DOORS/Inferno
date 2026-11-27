@@ -72,17 +72,15 @@ internal class ResearchCommandParser(
 
     /** Returns any incomplete ordinary text that was held while checking for a command prefix. */
     fun finish(): String {
-        if (commands.isNotEmpty()) {
-            // Some small models omit the closing tag after emitting a complete JSON object. Accept only
-            // syntactically complete JSON here; never dispatch a truncated argument object.
-            when (mode) {
-                Mode.TAG_BODY -> parseTagBody(body.toString())
-                Mode.LEGACY_BODY -> parseLegacyBody(body.toString())
-                else -> Unit
-            }
-            return ""
+        // A few small models omit a closing tag after a complete JSON object. Parse only a complete JSON
+        // object here; malformed or truncated command text is restored as ordinary visible text.
+        when (mode) {
+            Mode.TAG_BODY -> parseTagBody(body.toString())
+            Mode.LEGACY_BODY -> parseLegacyBody(body.toString())
+            else -> Unit
         }
 
+        if (commands.isNotEmpty()) return ""
         return when (mode) {
             Mode.PROBE, Mode.PROBE_NEXT -> candidate.toString()
             Mode.TAG_BODY -> "<search>" + body
