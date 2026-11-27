@@ -211,7 +211,7 @@ internal object ResearchPrompt {
             baseSystem?.takeIf(String::isNotBlank),
             instructions,
             context.takeIf(String::isNotBlank),
-            if (toolsEnabled) null else "The research call budget is exhausted. Do not call another tool; answer from gathered evidence and state limitations."
+            if (toolsEnabled) null else "FINAL ANSWER MODE: The search pass is over. NEVER emit <search>, [INFERNO_TOOL], JSON tool arguments, or any other command syntax. Write the user-facing answer now using the evidence above. If no evidence exists, answer normally from your knowledge and state uncertainty."
         ).joinToString("\n\n")
     }
 }
