@@ -56,11 +56,6 @@ import coil3.compose.AsyncImage
 import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.Copy
 import com.composables.icons.lucide.Info
-import com.composables.icons.lucide.Search
-import com.composables.icons.lucide.Globe
-import com.composables.icons.lucide.Image
-import com.composables.icons.lucide.Video
-import com.composables.icons.lucide.GraduationCap
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.NotebookPen
 import com.composables.icons.lucide.Pencil
@@ -133,7 +128,6 @@ fun SharedTransitionScope.MessagesList(
     onOpenImage: (Attachment) -> Unit,
     onOpenTurnDetails: (ChatMessage) -> Unit,
     onEdit: (ChatMessage) -> Unit,
-    onResearch: (String, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
     /** Height of the composer overlaid on the list, so the last turn can always scroll clear of it. */
     bottomInset: Dp = 132.dp,
@@ -190,7 +184,6 @@ fun SharedTransitionScope.MessagesList(
                             announce = m.id == announceId,
                             onRegenerate = onRegenerate,
                             onDetails = { onOpenTurnDetails(m) },
-                            onResearch = onResearch,
                             modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = placement),
                             showDetails = dev.turnDetails,
                             techMeta = dev.generationStats,
@@ -330,7 +323,6 @@ private fun AssistantMessage(
 ) {
     val context = LocalContext.current
     val haptics = rememberHaptics()
-    var researchMenu by remember { mutableStateOf(false) }
     Column(modifier.fillMaxWidth()) {
         if (reasoning.isNotBlank()) {
             ReasoningPanel(reasoning, live = false, thinkingMs = thinkingMs.takeIf { it > 0 } ?: 0L)
@@ -347,38 +339,6 @@ private fun AssistantMessage(
             Column {
                 Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
                     GhostIconButton(Lucide.Copy, S.copyMessage, onClick = { haptics.tap(); copyToClipboard(context, text, "Inferno message") }, size = 32.dp, iconSize = 15.dp, tint = Ink.I500)
-                    Box {
-                        GhostIconButton(
-                            Lucide.Search,
-                            S.researchMessage,
-                            onClick = { haptics.tap(); researchMenu = true },
-                            size = 32.dp,
-                            iconSize = 15.dp,
-                            tint = Ink.I500,
-                        )
-                        GlassMenu(expanded = researchMenu, onDismiss = { researchMenu = false }, minWidth = 220.dp) {
-                            MenuActionRow(Lucide.Globe, S.searchWeb) {
-                                researchMenu = false
-                                haptics.tap()
-                                onResearch(text, "web")
-                            }
-                            MenuActionRow(Lucide.Image, S.searchImages) {
-                                researchMenu = false
-                                haptics.tap()
-                                onResearch(text, "images")
-                            }
-                            MenuActionRow(Lucide.Video, S.searchVideos) {
-                                researchMenu = false
-                                haptics.tap()
-                                onResearch(text, "videos")
-                            }
-                            MenuActionRow(Lucide.GraduationCap, S.searchAcademic) {
-                                researchMenu = false
-                                haptics.tap()
-                                onResearch(text, "academic")
-                            }
-                        }
-                    }
                     if (showRegenerate) GhostIconButton(Lucide.RefreshCw, S.regenerate, onClick = { haptics.tap(); onRegenerate() }, size = 32.dp, iconSize = 15.dp, tint = Ink.I500)
                     if (stats != null && showDetails) GhostIconButton(Lucide.Info, S.details, onClick = { haptics.tap(); onDetails() }, size = 32.dp, iconSize = 15.dp, tint = Ink.I500)
                     if (showMeta && stats != null) metaLine(stats, techMeta)?.let { meta ->
