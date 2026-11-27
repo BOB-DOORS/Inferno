@@ -77,13 +77,21 @@ class ResearchCommandParserTest {
     }
 
     @Test
-    fun singleBracketLegacyMarkerUsesCurrentUserQueryAndIsNotDisplayed() {
-        val parser = ResearchCommandParser("what is qwen 3.5?")
+    fun argumentFreeLegacyMarkerFallsBackToTextInsteadOfSearchingOrDisplaying() {
+        val parser = ResearchCommandParser()
         assertEquals("", parser.accept("[INFERNO_TOOL:search_web]"))
 
-        assertEquals(1, parser.calls.size)
-        assertEquals("what is qwen 3.5?", parser.calls.single().string("query"))
+        assertTrue(parser.calls.isEmpty())
+        assertTrue(parser.needsTextFallback)
         assertEquals("", parser.finish())
+    }
+
+    @Test
+    fun truncatedLegacyMarkerAlsoRequestsTextFallback() {
+        val parser = ResearchCommandParser()
+        assertEquals("", parser.accept("[[INFERNO_TOOL:search_web"))
+        assertEquals("", parser.finish())
+        assertTrue(parser.needsTextFallback)
     }
 
     @Test
