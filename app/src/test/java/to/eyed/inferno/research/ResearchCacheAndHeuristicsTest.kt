@@ -25,7 +25,7 @@ class ResearchCacheAndHeuristicsTest {
     }
 
     @Test fun emptyStaticPageWithScriptsFallsBackToRenderer() {
-        assertTrue(ResearchPageHeuristics.shouldRenderJavascript("<script>boot()</script>", ""))
+        assertTrue(ResearchPageHeuristics.shouldRenderJavascript("<script>boot()</script><script>mount()</script>", ""))
     }
 
     @Test fun compressedPayloadCannotExceedDecodeLimit() {
