@@ -2,6 +2,8 @@ package to.eyed.inferno.research
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -215,7 +217,21 @@ internal class ResearchCommandParser(
 
         val tool = parsed.string("tool") ?: parsed.string("name") ?: "search_web"
         val arguments = parsed["arguments"] as? JsonObject
-            ?: JsonObject(parsed.filterKeys { it != "tool" && it != "name" })
+            ?: JsonObject(parsed.filterKeys { it != "tool" && it != "name" && it != "queries" })
+
+        val queries = parsed["queries"] as? JsonArray
+        if (tool == "search_web" && queries != null) {
+            var added = false
+            queries.asSequence()
+                .mapNotNull { element -> runCatching { element.jsonPrimitive.contentOrNull }.getOrNull() }
+                .filter(String::isNotBlank)
+                .take((maxCommands - commands.size).coerceAtLeast(0))
+                .forEach { query ->
+                    val queryArguments = JsonObject(arguments + ("query" to JsonPrimitive(query.take(MAX_QUERY_CHARS))))
+                    added = addCall(tool, queryArguments) || added
+                }
+            return added
+        }
         return addCall(tool, arguments)
     }
 
