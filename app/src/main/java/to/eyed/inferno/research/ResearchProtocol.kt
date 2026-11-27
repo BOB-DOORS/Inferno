@@ -119,7 +119,7 @@ internal object ResearchPrompt {
             <search>{"tool":"search_news","arguments":{"query":"release date","freshness":"week"}}</search>
             A search_web block accepts query or a queries array. Other tools accept arguments appropriate to their name.
             Supported tools: search_web, search_news, search_products, search_images, search_videos, search_academic,
-            open_page, extract_product, find_in_page, follow_links, compare_sources. Separate unrelated facts into focused queries.
+            search_forums, search_wiki, search_repositories, open_page, extract_product, find_in_page, follow_links, compare_sources. Separate unrelated facts into focused queries.
             Never emit the old [INFERNO_TOOL] format, prose between command blocks, or a final answer in this pass.
             The app executes valid blocks together and asks once for the final answer.
 

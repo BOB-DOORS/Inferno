@@ -170,6 +170,18 @@ class ResearchCommandParserTest {
     }
 
     @Test
+    fun communityWikiAndRepositoryToolsAreAccepted() {
+        val parser = ResearchCommandParser()
+        parser.accept("""<search>{"tool":"search_forums","arguments":{"query":"topic"}}</search>""")
+        parser.accept("""<search>{"tool":"search_wiki","arguments":{"query":"topic"}}</search>""")
+        parser.accept("""<search>{"tool":"search_repositories","arguments":{"query":"topic"}}</search>""")
+        assertEquals(
+            listOf("search_forums", "search_wiki", "search_repositories"),
+            parser.calls.map { it.name },
+        )
+    }
+
+    @Test
     fun emptySearchArgumentsAreCapturedWithoutLeakingTheTag() {
         val parser = ResearchCommandParser()
         val malformed = """<search>{"tool":"search_web","arguments":{}}</search>"""

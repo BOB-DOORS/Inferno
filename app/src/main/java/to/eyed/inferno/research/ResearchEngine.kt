@@ -58,6 +58,9 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
                     "search_images" -> searchImages(call)
                     "search_videos" -> searchVideos(call)
                     "search_academic" -> searchAcademic(call)
+                    "search_forums" -> searchForums(call)
+                    "search_wiki" -> searchWiki(call)
+                    "search_repositories" -> searchRepositories(call)
                     "find_in_page" -> findInPage(call)
                     "follow_links" -> followLinks(call)
                     "compare_sources" -> ResearchOutput("Source comparison", workspace.comparisonNotes())
@@ -83,14 +86,16 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
         val localBeforeCrawl = localIndex.search(query, MAX_SEARCH_RESULTS).map { hit ->
             SearchHit(hit.title, hit.url, hit.snippet)
         }
-        var hits = coroutineScope {
+        var providerHits = coroutineScope {
             val ddg = async { searchProvider { searchDuckDuckGo(queryWithDate) } }
             val bing = async { searchProvider { searchBing(queryWithDate) } }
-            dedupe(localBeforeCrawl + ddg.await() + bing.await())
+            dedupe(ddg.await() + bing.await())
         }
-        if (hits.size < MIN_SEARCH_RESULTS) {
-            hits = dedupe(hits + searchProvider { searchYahoo(queryWithDate) })
+        // Local matches supplement the SERPs; they must not suppress fallback when web providers are thin.
+        if (providerHits.size < MIN_SEARCH_RESULTS) {
+            providerHits = dedupe(providerHits + searchProvider { searchYahoo(queryWithDate) })
         }
+        var hits = dedupe(localBeforeCrawl + providerHits)
 
         // Search results seed a persistent local crawl. A small batch is processed in this foreground
         // request; the remaining frontier survives process death and is drained by later searches.
@@ -252,6 +257,80 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
             ) selected += hit
         }
         return selected
+    }
+
+    private suspend fun searchForums(call: ResearchToolCall): ResearchOutput {
+        val query = prepareQuery(call) ?: return blocked()
+        val scoped = "$query (site:reddit.com OR site:stackoverflow.com OR site:serverfault.com OR site:superuser.com)"
+        return searchWeb(ResearchToolCall("search_web", jsonArgs("query" to scoped)))
+            .copy(heading = "Community search: $query")
+    }
+
+    private suspend fun searchWiki(call: ResearchToolCall): ResearchOutput {
+        val query = prepareQuery(call) ?: return blocked()
+        val response = fetchText(
+            "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${enc(query)}&format=json&utf8=1&srlimit=8",
+            true,
+            MAX_WIKI_BYTES,
+        )
+        val matches = runCatching {
+            Json.parseToJsonElement(response.text).jsonObject["query"]
+                ?.jsonObject?.get("search") as? JsonArray
+        }.getOrNull() ?: JsonArray(emptyList())
+        val hits = matches.mapNotNull { element ->
+            val item = element as? JsonObject ?: return@mapNotNull null
+            val title = item.string("title").orEmpty()
+            if (title.isBlank()) return@mapNotNull null
+            val snippet = item.string("snippet")?.let { Jsoup.parse(it).text() }.orEmpty()
+            val slug = URLEncoder.encode(title.replace(' ', '_'), StandardCharsets.UTF_8.name())
+                .replace("%2F", "/")
+            val url = safeUrl("https://en.wikipedia.org/wiki/$slug")?.toString() ?: return@mapNotNull null
+            if (!ResearchSafetyGate.allows(title + " " + snippet + " " + url)) return@mapNotNull null
+            SearchHit(title.take(220), url, snippet.take(500))
+        }.distinctBy { normalizeUrl(it.url) }.take(MAX_SEARCH_RESULTS)
+        return ResearchOutput(
+            "Wikipedia search: $query",
+            hits.joinToString("\n\n") { "${it.title}\n${it.url}\n${it.snippet}" }
+                .ifBlank { "Wikipedia returned no matching encyclopedia pages." },
+            hits.map { it.source() },
+        )
+    }
+
+    private suspend fun searchRepositories(call: ResearchToolCall): ResearchOutput {
+        val query = prepareQuery(call) ?: return blocked()
+        val response = fetchText(
+            "https://api.github.com/search/repositories?q=${enc(query)}&sort=stars&order=desc&per_page=10",
+            true,
+            MAX_REPOSITORY_BYTES,
+        )
+        val items = runCatching {
+            Json.parseToJsonElement(response.text).jsonObject["items"] as? JsonArray
+        }.getOrNull() ?: JsonArray(emptyList())
+        val hits = items.mapNotNull { element ->
+            val item = element as? JsonObject ?: return@mapNotNull null
+            val name = item.string("full_name").orEmpty()
+            val url = item.string("html_url")?.let(::safeUrl)?.toString() ?: return@mapNotNull null
+            val description = item.string("description").orEmpty()
+            if (name.isBlank() || !ResearchSafetyGate.allows(name + " " + description + " " + url)) return@mapNotNull null
+            val language = item.string("language").orEmpty()
+            val stars = item["stargazers_count"]?.let {
+                runCatching { it.jsonPrimitive.contentOrNull }.getOrNull()
+            }.orEmpty()
+            val updated = item.string("updated_at").orEmpty()
+            val snippet = buildString {
+                if (description.isNotBlank()) append(description.take(350))
+                if (language.isNotBlank()) append("\nLanguage: ").append(language)
+                if (stars.isNotBlank()) append("\nStars: ").append(stars)
+                if (updated.isNotBlank()) append("\nUpdated: ").append(updated)
+            }
+            SearchHit(name.take(220), url, snippet, updated)
+        }.distinctBy { normalizeUrl(it.url) }.take(MAX_SEARCH_RESULTS)
+        return ResearchOutput(
+            "GitHub repository search: $query",
+            hits.joinToString("\n\n") { "${it.title}\n${it.url}\n${it.snippet}" }
+                .ifBlank { "GitHub returned no matching public repositories." },
+            hits.map { it.source() },
+        )
     }
 
     private suspend fun searchNews(call: ResearchToolCall): ResearchOutput {
@@ -860,6 +939,8 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
         private const val MAX_AUTO_OPEN_RESULTS = 2
         private const val MAX_IMAGE_RESULTS = 6
         private const val MAX_ACADEMIC_BYTES = 1_200_000
+        private const val MAX_WIKI_BYTES = 900_000
+        private const val MAX_REPOSITORY_BYTES = 1_500_000
         private const val MAX_META_IMAGES = 4
         private const val MAX_PAGE_IMAGES = 48
         private const val MAX_LINK_CANDIDATES = 120
