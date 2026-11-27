@@ -313,7 +313,6 @@ private fun AssistantMessage(
     announce: Boolean,
     onRegenerate: () -> Unit,
     onDetails: () -> Unit,
-    onResearch: (String, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
     showMeta: Boolean = false,
     /** Developer mode: the Details action, the numbers in the meta line, and the live counter under the caret. */
