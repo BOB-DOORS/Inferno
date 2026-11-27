@@ -108,6 +108,7 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
         val sources = linkedMapOf<String, ResearchSource>()
         pages.flatMap { it.sources }.forEach { sources.putIfAbsent(it.url, it) }
         hits.map { it.source() }.forEach { sources.putIfAbsent(it.url, it) }
+        val (indexedPageCount, queuedPageCount) = localIndex.stats()
         val snippets = if (hits.isEmpty()) {
             "No results were returned by DuckDuckGo, Bing, or Yahoo. A provider may be unavailable, rate-limiting this connection, or disallowing automated access in robots.txt."
         } else hits.joinToString("\n\n") { hit ->
@@ -119,6 +120,9 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
         }
         val pageEvidence = pages.joinToString("\n\n") { it.evidence }
         val evidence = buildString {
+            append("ON-DEVICE INDEX: ").append(localAfterCrawl.size).append(" matching local records; ")
+                .append(indexedPageCount).append(" pages indexed and ").append(queuedPageCount)
+                .append(" discovered URLs queued for later crawl.\n")
             append("SEARCH RESULTS\n").append(snippets)
             if (pageEvidence.isNotBlank()) append("\n\nOPENED TOP PAGES\n").append(pageEvidence)
         }
@@ -848,7 +852,7 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
         private const val MAX_SITEMAP_BYTES = 512_000
         private const val MAX_SITEMAP_PAGE_URLS = 24
         private const val MAX_CHILD_SITEMAPS = 2
-        private const val MAX_CRAWL_PAGES_PER_QUERY = 3
+        private const val MAX_CRAWL_PAGES_PER_QUERY = 2
         private const val MAX_CRAWL_DEPTH = 1
         private const val MAX_LINKS_PER_CRAWLED_PAGE = 8
         private const val MIN_CRAWL_LINK_TITLE = 3
