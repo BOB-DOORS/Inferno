@@ -6,7 +6,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.webkit.CookieManager
-import android.webkit.SafeBrowsingResponse
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -121,8 +120,8 @@ internal class JavascriptPageRenderer(context: Context) {
 
                 poll = {
                     if (!finished) {
-                        val current = webView ?: return@let
-                        current.evaluateJavascript(
+                        val current = webView
+                        if (current != null) current.evaluateJavascript(
                             "(function(){var b=document.body;return JSON.stringify({ready:document.readyState,length:b?(b.innerText||'').length:0,resources:performance.getEntriesByType('resource').length});})()",
                         ) { raw ->
                             val data = runCatching {
