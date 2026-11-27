@@ -361,7 +361,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
             var (system, messages0, images) = parts()
             // (2) the context policy decides what the model sees when the window is tight.
             val messages: List<PromptMessage>
-            val promptImages: List<PromptImage>
+            var promptImages: List<PromptImage>
             _trimmedNotice.value = 0
             when (settings.contextPolicy) {
                 ContextPolicy.ROLLING -> {
@@ -471,7 +471,9 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
                     researchCalls++
                     val dynamicSystem = ResearchPrompt.compose(system, workspace, researchCalls < MAX_RESEARCH_CALLS)
                     val content = messages.filterNot { it.role == "system" }
-                    activeMessages = listOf(PromptMessage("system", dynamicSystem)) + content
+                    val refit = c.contextManager.fit(dynamicSystem, content, promptImages, nCtx, reserve, 0)
+                    activeMessages = refit.messages
+                    promptImages = refit.images
                     setGen(conversationId, GenState.Prefill(0, 0, false, expectedEncodeMs))
                 }
             }
