@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import android.content.Context
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -22,7 +23,6 @@ import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.parser.Parser
 import java.io.IOException
-import java.net.InetAddress
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.Locale
@@ -33,7 +33,9 @@ import kotlin.coroutines.resumeWithException
  * Native, API-key-free public-web research. Retrieval and parsing stay on-device; only focused queries and requested
  * public URLs are sent to the selected public search/page hosts. No cloud model or account is involved.
  */
-internal class ResearchEngine(private val client: OkHttpClient) {
+internal class ResearchEngine(context: Context, private val client: OkHttpClient) {
+    private val persistentCache = ResearchPersistentCache(context)
+    private val javascriptRenderer = JavascriptPageRenderer(context)
     private val pageCache = ConcurrentHashMap<String, CachedPage>()
     private val robotsCache = ConcurrentHashMap<String, RobotsRules>()
     private val hostRequests = ConcurrentHashMap<String, Long>()
@@ -178,15 +180,46 @@ internal class ResearchEngine(private val client: OkHttpClient) {
         val initial = safeUrl(rawUrl) ?: throw IOException("Only public HTTP(S) pages on standard web ports are supported.")
         val key = normalizeUrl(initial.toString())
         pageCache[key]?.takeIf { System.currentTimeMillis() - it.createdAt < PAGE_CACHE_MS }?.let { return it.page }
+
+        val saved = persistentCache.get(ResearchPersistentCache.KIND_PAGE, key, PAGE_CACHE_MS)
+        if (saved != null) {
+            val separator = saved.indexOf('\n')
+            if (separator > 0) {
+                val cachedUrl = safeUrl(saved.substring(0, separator)) ?: initial
+                val cachedHtml = saved.substring(separator + 1)
+                val cachedPage = runCatching {
+                    withContext(Dispatchers.Default) { parsePage(cachedHtml, cachedUrl) }
+                }.getOrNull()
+                if (cachedPage != null) {
+                    pageCache[key] = CachedPage(System.currentTimeMillis(), cachedPage)
+                    return cachedPage
+                }
+            }
+        }
+
         val robots = robotsFor(initial)
         if (robots.disallowed.any { pathMatches(initial.encodedPath, it) }) {
             throw IOException("The website's robots.txt disallows automated page access.")
         }
         awaitHostSlot(initial.host, robots.crawlDelayMs)
+
         val fetched = fetchText(initial.toString(), false)
-        val page = withContext(Dispatchers.Default) { parsePage(fetched.text, fetched.url) }
+        var pageHtml = fetched.text
+        var page = withContext(Dispatchers.Default) { parsePage(pageHtml, fetched.url) }
+        if (ResearchPageHeuristics.shouldRenderJavascript(pageHtml, page.text)) {
+            val renderedHtml = javascriptRenderer.render(fetched.url.toString())
+            if (!renderedHtml.isNullOrBlank()) {
+                val renderedPage = withContext(Dispatchers.Default) { parsePage(renderedHtml, fetched.url) }
+                if (renderedPage.text.length > page.text.length + MIN_JS_TEXT_GAIN || page.text.isBlank()) {
+                    pageHtml = renderedHtml
+                    page = renderedPage
+                }
+            }
+        }
+
+        persistentCache.put(ResearchPersistentCache.KIND_PAGE, key, fetched.url.toString() + "\n" + pageHtml)
         pageCache[key] = CachedPage(System.currentTimeMillis(), page)
-        if (pageCache.size > 100) pageCache.keys.firstOrNull()?.let(pageCache::remove)
+        if (pageCache.size > MAX_MEMORY_PAGES) pageCache.keys.firstOrNull()?.let(pageCache::remove)
         return page
     }
 
@@ -305,12 +338,25 @@ internal class ResearchEngine(private val client: OkHttpClient) {
 
     private suspend fun robotsFor(url: HttpUrl): RobotsRules {
         val origin = "${url.scheme}://${url.host}"
-        robotsCache[origin]?.let { return it }
-        val rules = runCatching {
-            val response = fetchText("$origin/robots.txt", false, MAX_ROBOTS_BYTES)
-            if (response.code == 404) RobotsRules(emptyList(), 0L) else parseRobots(response.text)
-        }.getOrElse { RobotsRules(listOf("/"), 0L) }
-        return robotsCache.putIfAbsent(origin, rules) ?: rules
+        val now = System.currentTimeMillis()
+        robotsCache[origin]?.let { cached ->
+            if (now - cached.cachedAt in 0..ROBOTS_CACHE_MS) return cached
+            robotsCache.remove(origin, cached)
+        }
+        val cachedText = persistentCache.get(ResearchPersistentCache.KIND_ROBOTS, origin, ROBOTS_CACHE_MS)
+        if (cachedText != null) {
+            return parseRobots(cachedText).copy(cachedAt = now).also { robotsCache[origin] = it }
+        }
+        val response = try {
+            fetchText("$origin/robots.txt", false, MAX_ROBOTS_BYTES)
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            return RobotsRules(listOf("/"), 0L, now)
+        }
+        if (response.code != 404 && response.code !in 200..299) return RobotsRules(listOf("/"), 0L, now)
+        val robotsText = if (response.code == 404) "User-agent: *\n" else response.text
+        persistentCache.put(ResearchPersistentCache.KIND_ROBOTS, origin, robotsText)
+        return parseRobots(robotsText).copy(cachedAt = now).also { robotsCache[origin] = it }
     }
 
     private fun parseRobots(text: String): RobotsRules {
@@ -360,6 +406,7 @@ internal class ResearchEngine(private val client: OkHttpClient) {
                         ?: throw IOException("Unsafe redirect destination.")
                     return@repeat
                 }
+                if (res.code == 404 && current.encodedPath == "/robots.txt") return TextResponse("", current, 404)
                 if (!res.isSuccessful) throw IOException("HTTP ${res.code} from ${current.host}.")
                 val body = res.body ?: throw IOException("Empty response.")
                 val mime = body.contentType()?.let { "${it.type}/${it.subtype}".lowercase(Locale.ROOT) }.orEmpty()
@@ -389,22 +436,7 @@ internal class ResearchEngine(private val client: OkHttpClient) {
         })
     }
 
-    private fun safeUrl(raw: String): HttpUrl? {
-        val url = raw.trim().toHttpUrlOrNull() ?: return null
-        if (!((url.scheme == "https" && url.port == 443) || (url.scheme == "http" && url.port == 80))) return null
-        if (url.username.isNotEmpty() || url.password.isNotEmpty()) return null
-        val host = url.host.lowercase(Locale.ROOT).trimEnd('.')
-        if (!ResearchSafetyGate.allows(host + url.encodedPath + url.encodedQuery.orEmpty())) return null
-        if (host.isBlank() || host == "localhost" || host.endsWith(".localhost") ||
-            host.endsWith(".local") || host.endsWith(".internal")) return null
-        return runCatching {
-            val addresses = InetAddress.getAllByName(host)
-            if (addresses.isEmpty() || addresses.any { address ->
-                address.isAnyLocalAddress || address.isLoopbackAddress || address.isLinkLocalAddress ||
-                    address.isSiteLocalAddress || address.isMulticastAddress
-            }) null else url
-        }.getOrNull()
-    }
+    private fun safeUrl(raw: String): HttpUrl? = ResearchUrlPolicy.safeUrl(raw)
 
     private fun prepareQuery(call: ResearchToolCall): String? {
         val query = call.string("query").trim().replace(Regex("\\s+"), " ").take(320)
@@ -445,7 +477,7 @@ internal class ResearchEngine(private val client: OkHttpClient) {
     private data class SearchHit(val title: String, val url: String, val snippet: String, val publishedAt: String? = null)
     private data class PageData(val output: ResearchOutput, val text: String, val links: List<SearchHit>)
     private data class CachedPage(val createdAt: Long, val page: PageData)
-    private data class RobotsRules(val disallowed: List<String>, val crawlDelayMs: Long)
+    private data class RobotsRules(val disallowed: List<String>, val crawlDelayMs: Long, val cachedAt: Long = System.currentTimeMillis())
     private data class TextResponse(val text: String, val url: HttpUrl, val code: Int)
 
     companion object {
@@ -455,12 +487,15 @@ internal class ResearchEngine(private val client: OkHttpClient) {
         private const val MAX_ROBOTS_BYTES = 96_000
         private const val MAX_PAGE_TEXT = 10_000
         private const val MAX_REDIRECTS = 5
-        private const val PAGE_CACHE_MS = 45 * 60 * 1_000L
+        private const val PAGE_CACHE_MS = 6 * 60 * 60 * 1_000L
+        private const val ROBOTS_CACHE_MS = 24 * 60 * 60 * 1_000L
+        private const val MAX_MEMORY_PAGES = 24
+        private const val MIN_JS_TEXT_GAIN = 80
         private const val MIN_HOST_INTERVAL_MS = 700L
     }
 }
 
-private object ResearchSafetyGate {
+internal object ResearchSafetyGate {
     private val blocked = listOf(
         Regex("\\b(firearms?|guns?|ammunition|explosives?|bombs?|detonators?|switchblades?|weapons?|knives?|blades?|tasers?|pepper spray|mace|stun guns?|weaponized)\\b", RegexOption.IGNORE_CASE),
         Regex("\\b(cocaine|heroin|methamphetamine|fentanyl|opioids?|marijuana|cannabis|poisons?|toxins?|pesticides|steroids|intoxicants?|hallucinogens?|controlled substances)\\b", RegexOption.IGNORE_CASE),
