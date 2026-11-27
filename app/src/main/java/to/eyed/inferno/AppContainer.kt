@@ -30,6 +30,7 @@ import to.eyed.inferno.models.ModelFiles
 import to.eyed.inferno.models.ModelRepository
 import to.eyed.inferno.sd.ImageEngine
 import to.eyed.inferno.research.ResearchEngine
+import to.eyed.inferno.research.ResearchUrlPolicy
 import java.util.concurrent.TimeUnit
 
 /**
@@ -66,6 +67,7 @@ class AppContainer(app: Application) {
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(12, TimeUnit.SECONDS)
         .callTimeout(20, TimeUnit.SECONDS)
+        .dns { hostname -> ResearchUrlPolicy.lookupPublicAddresses(hostname) }
         .followRedirects(false)
         .followSslRedirects(false)
         .build()
