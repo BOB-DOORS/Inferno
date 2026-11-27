@@ -370,7 +370,7 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
     }
 
     private suspend fun robotsFor(url: HttpUrl): RobotsRules {
-        val origin = "${url.scheme}://${url.host}"
+        val origin = url.newBuilder().encodedPath("/").query(null).fragment(null).build().toString().trimEnd('/')
         val now = System.currentTimeMillis()
         robotsCache[origin]?.let { cached ->
             if (now - cached.cachedAt in 0..ROBOTS_CACHE_MS) return cached
