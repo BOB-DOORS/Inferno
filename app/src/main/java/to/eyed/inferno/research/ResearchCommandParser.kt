@@ -19,7 +19,7 @@ import kotlinx.serialization.json.buildJsonObject
  * model cannot accidentally leak raw tool syntax into the chat bubble.
  */
 internal class ResearchCommandParser(
-    private val maxCommands: Int = MAX_COMMANDS,
+    maxCommands: Int = MAX_COMMANDS,
 ) {
     private enum class Mode {
         PROBE,
@@ -33,6 +33,7 @@ internal class ResearchCommandParser(
         SUPPRESS,
     }
 
+    private val maxCommands = maxCommands.coerceIn(0, MAX_COMMANDS)
     private var mode = Mode.PROBE
     private val candidate = StringBuilder()
     private val header = StringBuilder()
@@ -216,10 +217,11 @@ internal class ResearchCommandParser(
         }
 
         val tool = parsed.string("tool") ?: parsed.string("name") ?: "search_web"
-        val arguments = parsed["arguments"] as? JsonObject
+        val suppliedArguments = parsed["arguments"] as? JsonObject
+        val arguments = suppliedArguments?.let { JsonObject(it.filterKeys { key -> key != "queries" }) }
             ?: JsonObject(parsed.filterKeys { it != "tool" && it != "name" && it != "queries" })
 
-        val queries = parsed["queries"] as? JsonArray
+        val queries = parsed["queries"] as? JsonArray ?: suppliedArguments?.get("queries") as? JsonArray
         if (tool == "search_web" && queries != null) {
             var added = false
             queries.asSequence()
