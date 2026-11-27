@@ -43,13 +43,19 @@ own copy of ggml) and 5 MB the language-model library.
   `git -C third_party/llama.cpp fetch --tags --depth=1` to get the real tag.
 * **Kotlin** is built into AGP 9; do not apply `org.jetbrains.kotlin.android`. Versions live in
   `gradle/libs.versions.toml`.
-* **Web research** uses the local `ResearchEngine`, OkHttp, Jsoup and an ephemeral Android WebView fallback for
-  JavaScript-heavy app shells. The WebView has no file/content access, cookies, popups, cross-host top-level
-  navigation or non-GET requests; it is created only when static extraction is insufficient and is destroyed after
-  DOM capture. Compressed page HTML and robots rules are stored in a separate bounded SQLite cache (18 MB total),
-  with 6-hour and 24-hour TTLs respectively. No API key or cloud model is used. Public search queries and opened
-  page URLs are sent to public websites only when the user enables Web research; chat history and prompts are never
-  uploaded to a cloud model. See the README privacy section.
+* **Web research** uses the local `ResearchEngine`, OkHttp, Jsoup and AndroidX WebKit 1.18.0. JavaScript-heavy
+  app shells are rendered only when static extraction is insufficient and the installed WebView supports multi-profile.
+  Each render receives a fresh, unique WebKit profile; it is assigned before any WebView settings or navigation,
+  then the WebView is destroyed and the profile is deleted after DOM capture. This isolates the renderer's cookies,
+  DOM storage, IndexedDB and cache from the app's default WebView profile and later renders. Third-party cookies,
+  file/content access, popups, cross-host top-level navigation, TLS failures for the requested origin, permission
+  requests and non-GET requests are blocked. WebKit may complete physical profile-data deletion asynchronously;
+  on devices without multi-profile support the renderer skips JavaScript and static extraction remains available.
+  Compressed page HTML and robots rules are stored in a separate bounded SQLite cache (18 MB total), with 6-hour and
+  24-hour TTLs respectively. Robots `Allow`/`Disallow`, wildcard and end-anchor rules are applied before page fetches
+  and after redirects. No API key or cloud model is used. Public search queries and opened page URLs are sent to public
+  websites only when the user enables Web research; chat history and prompts are never uploaded to a cloud model.
+  See the README privacy section.
 * **Native code is always optimised** (`-O3`, `-march=armv8.2-a+dotprod+fp16`), even in debug builds; only the
   Kotlin side is debuggable.
 * **R8 keep rules** in `app/proguard-rules.pro` and `sdengine/consumer-rules.pro` preserve every JNI entry point
