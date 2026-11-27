@@ -28,7 +28,8 @@ import to.eyed.inferno.models.EngineAccess
 import to.eyed.inferno.models.ModelDownloader
 import to.eyed.inferno.models.ModelFiles
 import to.eyed.inferno.models.ModelRepository
-import to.eyed.inferno.sd.ImageEngine\nimport to.eyed.inferno.research.ResearchEngine
+import to.eyed.inferno.sd.ImageEngine
+import to.eyed.inferno.research.ResearchEngine
 import java.util.concurrent.TimeUnit
 
 /**
@@ -60,7 +61,15 @@ class AppContainer(app: Application) {
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .build()
-    val downloader = ModelDownloader(okHttp, modelFiles)\n    private val researchHttp = OkHttpClient.Builder()\n        .connectTimeout(8, TimeUnit.SECONDS)\n        .readTimeout(12, TimeUnit.SECONDS)\n        .callTimeout(20, TimeUnit.SECONDS)\n        .followRedirects(false)\n        .followSslRedirects(false)\n        .build()\n    internal val research = ResearchEngine(researchHttp)
+    val downloader = ModelDownloader(okHttp, modelFiles)
+    private val researchHttp = OkHttpClient.Builder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(12, TimeUnit.SECONDS)
+        .callTimeout(20, TimeUnit.SECONDS)
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .build()
+    internal val research = ResearchEngine(researchHttp)
 
     /** ModelRepository's view of the text engine (delete/deleteAll never pull the file from under a live model). */
     private val engineAccess = object : EngineAccess {
