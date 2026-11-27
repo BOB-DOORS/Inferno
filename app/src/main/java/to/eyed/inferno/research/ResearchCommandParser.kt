@@ -88,6 +88,12 @@ internal class ResearchCommandParser(
         }
 
         if (commands.isNotEmpty() || needsTextFallback) return ""
+        if (mode == Mode.PROBE && candidate.isNotEmpty() &&
+            COMMAND_PREFIXES.any { it.startsWith(candidate.toString()) }
+        ) {
+            needsTextFallback = true
+            return ""
+        }
         return when (mode) {
             Mode.PROBE -> leadingWhitespace.toString() + candidate.toString()
             Mode.PROBE_NEXT -> candidate.toString()
