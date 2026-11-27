@@ -249,7 +249,10 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
     private fun parsePage(html: String, url: HttpUrl): PageData {
         val doc = Jsoup.parse(html, url.toString())
         val ld = doc.select("script[type=application/ld+json]").map { it.data().ifBlank { it.html() } }.take(12)
-        val structured = ld.flatMap { runCatching { flatten(Json.parseToJsonElement(it)) }.getOrDefault(emptyList()) }
+        val structured = ld.asSequence()
+            .flatMap { raw -> runCatching { flatten(Json.parseToJsonElement(raw)) }.getOrDefault(emptyList()).asSequence() }
+            .take(MAX_STRUCTURED_OBJECTS)
+            .toList()
         val title = doc.selectFirst("meta[property=og:title]")?.attr("content").orEmpty().ifBlank { doc.title() }.ifBlank { url.host }
         val description = doc.selectFirst("meta[name=description], meta[property=og:description]")?.attr("content").orEmpty()
         val author = doc.selectFirst("meta[name=author], meta[property=article:author]")?.attr("content")
@@ -260,17 +263,17 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
             .take(5).joinToString("\n") { productFacts(it) }
         val content = doc.selectFirst("article, main, [role=main]") ?: doc.body()
         val images = linkedMapOf<String, ResearchImage>()
-        doc.select("meta[property=og:image], meta[name=twitter:image]").forEach { meta ->
+        doc.select("meta[property=og:image], meta[name=twitter:image]").take(MAX_META_IMAGES).forEach { meta ->
             val urlImage = url.resolve(meta.attr("content"))?.toString()?.let(::safeUrl) ?: return@forEach
             images.putIfAbsent(urlImage.toString(), ResearchImage(urlImage.toString(), title, url.toString()))
         }
-        content.select("img[src], img[data-src], img[data-original]").forEach { image ->
+        content.select("img[src], img[data-src], img[data-original]").take(MAX_PAGE_IMAGES).forEach { image ->
             val raw = image.attr("src").ifBlank { image.attr("data-src") }.ifBlank { image.attr("data-original") }
             val imageUrl = url.resolve(raw)?.toString()?.let(::safeUrl) ?: return@forEach
             val alt = image.attr("alt").ifBlank { image.attr("title") }.ifBlank { title }.take(120)
             images.putIfAbsent(imageUrl.toString(), ResearchImage(imageUrl.toString(), alt, url.toString()))
         }
-        val links = content.select("a[href]").mapNotNull { anchor ->
+        val links = content.select("a[href]").take(MAX_LINK_CANDIDATES).mapNotNull { anchor ->
             val link = url.resolve(anchor.attr("href"))?.toString() ?: return@mapNotNull null
             if (safeUrl(link) == null) return@mapNotNull null
             val label = anchor.text().trim().ifBlank { anchor.attr("title") }.take(150)
@@ -499,10 +502,24 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
         return if (value is JsonArray) value.mapNotNull { it.jsonPrimitive.contentOrNull }
         else listOfNotNull(value.jsonPrimitive.contentOrNull)
     }
-    private fun flatten(value: JsonElement): List<JsonObject> = when (value) {
-        is JsonObject -> listOf(value) + value.values.flatMap(::flatten)
-        is JsonArray -> value.flatMap(::flatten)
-        else -> emptyList()
+    private fun flatten(value: JsonElement): List<JsonObject> {
+        val pending = ArrayDeque<JsonElement>()
+        val objects = ArrayList<JsonObject>()
+        pending.addLast(value)
+        var visited = 0
+
+        while (pending.isNotEmpty() && visited < MAX_JSONLD_NODES && objects.size < MAX_JSONLD_OBJECTS) {
+            when (val current = pending.removeFirst()) {
+                is JsonObject -> {
+                    objects += current
+                    current.values.asSequence().take(MAX_JSONLD_CHILDREN).forEach { pending.addLast(it) }
+                }
+                is JsonArray -> current.asSequence().take(MAX_JSONLD_CHILDREN).forEach { pending.addLast(it) }
+                else -> Unit
+            }
+            visited++
+        }
+        return objects
     }
     private fun SearchHit.source() = ResearchSource(title, url, url.toHttpUrlOrNull()?.host ?: "unknown", snippet, publishedAt)
 
@@ -515,6 +532,13 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
     companion object {
         private const val USER_AGENT = "InfernoResearch/1.0 (Android; respectful public-page reader)"
         private const val MAX_SEARCH_RESULTS = 10
+        private const val MAX_META_IMAGES = 4
+        private const val MAX_PAGE_IMAGES = 48
+        private const val MAX_LINK_CANDIDATES = 120
+        private const val MAX_STRUCTURED_OBJECTS = 256
+        private const val MAX_JSONLD_OBJECTS = 128
+        private const val MAX_JSONLD_NODES = 512
+        private const val MAX_JSONLD_CHILDREN = 64
         private const val MAX_PAGE_BYTES = 2_000_000
         private const val MAX_ROBOTS_BYTES = 96_000
         private const val MAX_PAGE_TEXT = 10_000
