@@ -47,7 +47,7 @@ own copy of ggml) and 5 MB the language-model library.
   app shells are rendered only when static extraction is insufficient and the installed WebView supports multi-profile.
   Each render receives a fresh, unique WebKit profile; it is assigned before any WebView settings or navigation,
   then the WebView is destroyed and the profile is deleted after DOM capture. WebKit may complete physical profile-data
-  cleanup asynchronously. The initial HTML is loaded from the already-fetched response. Every HTTP(S) resource is
+  cleanup asynchronously. The initial HTML is loaded from the already-fetched response. Every HTTPS resource is
   proxied through the same OkHttp client used by the engine, whose DNS implementation returns only previously validated
   public IP addresses. Redirects are followed manually and revalidated; robots rules are checked per resource origin.
   Resource requests are GET-only, capped at 96 requests / 8 MB total / 2 MB per resource, and in-flight requests are
