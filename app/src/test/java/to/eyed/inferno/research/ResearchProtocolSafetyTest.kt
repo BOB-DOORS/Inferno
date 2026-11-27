@@ -27,39 +27,38 @@ class ResearchProtocolSafetyTest {
     }
 
     @Test
-    fun toolMarkerCanBeSplitAcrossArbitraryTokenBoundaries() {
-        val parser = ResearchTokenParser()
+    fun commandCanBeSplitAcrossArbitraryTokenBoundaries() {
+        val parser = ResearchCommandParser()
         val output = listOf(
-            "[[INFER",
-            "NO_TOOL:search_",
-            "web]]",
-            """{"arguments":{"query":"Android compiler"}}""",
-            "[[/INFERNO_",
-            "TOOL]]",
-        ).map(parser::accept)
+            "<sea",
+            "rch>",
+            """{"tool":"search_web","arguments":{"query":"Android compiler"}}""",
+            "</se",
+            "arch>",
+        ).joinToString("") { parser.accept(it) } + parser.finish()
 
-        assertTrue(output.dropLast(1).all { it == ResearchTokenUpdate.Buffered })
-        val last = output.last()
-        assertTrue(last is ResearchTokenUpdate.Tool)
-        assertEquals("Android compiler", (last as ResearchTokenUpdate.Tool).call.string("query"))
+        assertEquals("", output)
+        assertEquals("Android compiler", parser.calls.single().string("query"))
     }
 
     @Test
-    fun malformedToolEnvelopeIsRestoredAsVisibleText() {
-        val parser = ResearchTokenParser()
-        val raw = """[[INFERNO_TOOL:search_web]]{"arguments":{"query":}}[[/INFERNO_TOOL]]"""
-        val visible = raw.chunked(3).mapNotNull { part ->
-            (parser.accept(part) as? ResearchTokenUpdate.Visible)?.text
-        }.joinToString("") + parser.finish()
+    fun unsupportedToolSyntaxIsHiddenAndRequestsAPlainAnswer() {
+        val parser = ResearchCommandParser()
+        val malformed = """<search>{"tool":"run_shell","arguments":{"command":"unexpected"}}</search>"""
+        val visible = malformed.chunked(3).joinToString("") { parser.accept(it) } + parser.finish()
 
-        assertEquals(raw, visible)
+        assertEquals("", visible)
+        assertTrue(parser.calls.isEmpty())
+        assertTrue(parser.needsTextFallback)
     }
 
     @Test
-    fun oversizedToolEnvelopeIsNeverDispatched() {
-        val parser = ResearchTokenParser()
-        parser.accept(ResearchTokenParser.START + "search_web]]")
-        val result = parser.accept("x".repeat(ResearchTokenParser.MAX_TOOL_PAYLOAD + 1))
-        assertTrue(result is ResearchTokenUpdate.Visible)
+    fun oversizedToolEnvelopeIsNeverDispatchedOrDisplayed() {
+        val parser = ResearchCommandParser()
+        parser.accept("<search>")
+        parser.accept("x".repeat(8_001))
+        assertEquals("", parser.finish())
+        assertTrue(parser.calls.isEmpty())
+        assertTrue(parser.needsTextFallback)
     }
 }
