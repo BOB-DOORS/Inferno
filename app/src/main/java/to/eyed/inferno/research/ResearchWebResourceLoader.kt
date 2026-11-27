@@ -158,7 +158,7 @@ internal class ResearchWebResourceLoader(private val client: OkHttpClient) {
                 response = result
                 if (result.code in REDIRECT_CODES) {
                     val location = result.header("Location") ?: return ResearchRobotsRules.denyAll()
-                    current = current.resolve(location)?.toString()?.let(ResearchUrlPolicy::safeUrl)
+                    current = current.resolve(location)?.toString()?.let { target -> ResearchUrlPolicy.safeUrl(target) }
                         ?: return ResearchRobotsRules.denyAll()
                     return@repeat
                 }
