@@ -302,6 +302,7 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
                                 announceId = announceId, imageScope = imageScope,
                                 onRegenerate = chatVm::regenerate, onOpenImage = { viewerId = it.id },
                                 onOpenTurnDetails = { detailsId = it.id }, onEdit = { editId = it.id },
+                                onResearch = chatVm::researchMessage,
                                 modifier = Modifier.fillMaxSize(),
                                 // The composer starts with a 32 dp gradient; the last turn rests 8 dp into it, so it never fades yet still scrolls under.
                                 bottomInset = if (composerHeight == 0) 132.dp else with(LocalDensity.current) { composerHeight.toDp() } - 8.dp,

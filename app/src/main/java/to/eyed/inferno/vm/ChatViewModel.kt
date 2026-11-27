@@ -28,6 +28,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import to.eyed.inferno.AppContainer
 import to.eyed.inferno.data.Attachment
 import to.eyed.inferno.data.ChatMessage
@@ -281,7 +283,12 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
     }
 
     /** [target] is the chat the turn belongs to (NO_CHAT: create one); a queued send keeps the chat it was typed in. */
-    private fun dispatch(text: String, atts: List<Attachment>, target: String = activeId.value ?: NO_CHAT) {
+    private fun dispatch(
+        text: String,
+        atts: List<Attachment>,
+        target: String = activeId.value ?: NO_CHAT,
+        researchMode: String? = null,
+    ) {
         launchGen(target) {
             val id = target.takeIf { it != NO_CHAT }
                 ?: c.chats.create(c.engine.state.value.modelOrNull?.id).id.also { newId ->
@@ -291,8 +298,16 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
             genStates.update { it - target }
             c.chats.appendUser(id, text, atts)
             if (_pending.value == atts) { _pending.value = emptyList(); savePending() }
-            run(id)
+            run(id, researchMode)
         }
+    }
+
+    /** Explicit toolbar research runs its selected tool directly, without model approval or tool-JSON generation. */
+    fun researchMessage(source: String, mode: String) {
+        if (mode !in setOf("web", "images", "videos", "academic") || !canStart()) return
+        val id = activeId.value ?: return
+        val context = source.trim().take(MAX_MESSAGE_RESEARCH_CHARS)
+        dispatch("Research this answer:\n$context", emptyList(), id, mode)
     }
 
     fun regenerate() {
@@ -337,7 +352,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
 
     // ---- the pipeline ----------------------------------------------------------------------------------------
 
-    private suspend fun run(conversationId: String) {
+    private suspend fun run(conversationId: String, forcedResearchMode: String? = null) {
         val settings = c.prefs.settings.value
         val loaded: LoadedModel = c.engine.state.value.loadedAny
             ?: run { setGen(conversationId, GenState.Error(S.chooseModelFirst)); return }
@@ -422,7 +437,61 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
             val workspace = ResearchWorkspace()
             val researchEnabled = settings.webResearchEnabled
             var activeMessages = messages
-            if (researchEnabled) {
+            var firstPass = forcedResearchMode == null
+            if (forcedResearchMode != null) {
+                val requestedText = messages.lastOrNull { it.role == "user" }?.content.orEmpty()
+                    .substringAfter("Research this answer:\n", "")
+                val lines = requestedText.lineSequence()
+                    .map { it.trim().removePrefix("#").removePrefix("-").trim() }
+                    .filter { it.length >= 18 && !it.startsWith("|") }
+                    .distinct()
+                    .take(MAX_FORCED_WEB_QUERIES)
+                    .toList()
+                val fallbackQuery = requestedText.trim().take(MAX_FORCED_RESEARCH_QUERY_CHARS)
+                val toolName = when (forcedResearchMode) {
+                    "images" -> "search_images"
+                    "videos" -> "search_videos"
+                    "academic" -> "search_academic"
+                    else -> "search_web"
+                }
+                val queries = if (toolName == "search_web") lines.ifEmpty { listOf(fallbackQuery) }
+                    else listOf(fallbackQuery)
+                val calls = queries.map { query ->
+                    ResearchToolCall(
+                        toolName,
+                        buildJsonObject { put("query", query.take(MAX_FORCED_RESEARCH_QUERY_CHARS)) },
+                    )
+                }
+                calls.forEach { workspace.recordCall() }
+                setGen(
+                    conversationId,
+                    GenState.Researching(
+                        when (forcedResearchMode) {
+                            "images" -> "Finding images"
+                            "videos" -> "Finding videos"
+                            "academic" -> "Finding papers"
+                            else -> "Researching answer"
+                        },
+                    ),
+                )
+                val outputs = coroutineScope {
+                    val slots = Semaphore(MAX_PARALLEL_RESEARCH)
+                    calls.map { call -> async { slots.withPermit { c.research.execute(call, workspace) } } }.awaitAll()
+                }
+                outputs.forEach(workspace::add)
+                val finalSystem = ResearchPrompt.compose(system, workspace, false)
+                val finalFit = c.contextManager.fit(
+                    finalSystem,
+                    messages.filterNot { it.role == "system" },
+                    promptImages,
+                    nCtx,
+                    reserve,
+                    0,
+                )
+                activeMessages = finalFit.messages
+                promptImages = finalFit.images
+                setGen(conversationId, GenState.Prefill(0, 0, false, expectedEncodeMs))
+            } else if (researchEnabled) {
                 val firstResearchSystem = ResearchPrompt.compose(system, workspace, true)
                 val firstResearchFit = c.contextManager.fit(
                     firstResearchSystem,
@@ -436,7 +505,6 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
                 promptImages = firstResearchFit.images
             }
 
-            var firstPass = true
             var completed = false
             while (!completed) {
                 val parser = if (researchEnabled && firstPass) ResearchCommandParser() else null
@@ -485,7 +553,8 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
                             } else if (parser?.needsTextFallback == true && stream.textStr.isBlank()) {
                                 runTextFallback = true
                             } else {
-                                val appendix = workspace.citationAppendix()
+                                // The source list stays above the app-rendered image block.
+                                val appendix = workspace.citationAppendix() + workspace.imageMarkdownAppendix()
                                 if (appendix.isNotBlank()) stream.token(appendix)
                                 val stats = toStats(ev.stats, ev.reason.name, model.id, loaded, params)
                                     .copy(thinkingMs = stream.thinkingMs)
@@ -772,6 +841,9 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
         const val MAX_ATTACHMENTS = 2
         const val MAX_PROMPT_IMAGES = 8
         const val MAX_RESEARCH_CALLS = 5
+        const val MAX_FORCED_RESEARCH_QUERY_CHARS = 260
+        const val MAX_FORCED_WEB_QUERIES = 3
+        const val MAX_MESSAGE_RESEARCH_CHARS = 3_200
         const val MAX_PARALLEL_RESEARCH = 3
         const val PUBLISH_NS = 80_000_000L
         const val TPS_NS = 500_000_000L
