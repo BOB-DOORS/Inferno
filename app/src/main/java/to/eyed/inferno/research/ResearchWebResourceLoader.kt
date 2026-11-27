@@ -80,8 +80,6 @@ internal class ResearchWebResourceLoader(private val client: OkHttpClient) {
             forwardedHeaders["accept-language"]?.let { requestBuilder.header("Accept-Language", it) }
             forwardedHeaders["origin"]?.takeIf { it.length <= MAX_HEADER_VALUE_CHARS }
                 ?.let { requestBuilder.header("Origin", it) }
-            forwardedHeaders["referer"]?.takeIf { it.length <= MAX_HEADER_VALUE_CHARS }
-                ?.let { requestBuilder.header("Referer", it) }
             forwardedHeaders["range"]?.let { requestBuilder.header("Range", it) }
 
             val call = client.newCall(requestBuilder.build())
@@ -273,7 +271,6 @@ internal class ResearchWebResourceLoader(private val client: OkHttpClient) {
             "accept",
             "accept-language",
             "origin",
-            "referer",
             "range",
         )
         private val SAFE_RESPONSE_HEADERS = setOf(
