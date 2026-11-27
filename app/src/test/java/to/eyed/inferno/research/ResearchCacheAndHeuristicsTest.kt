@@ -101,5 +101,7 @@ class ResearchCacheAndHeuristicsTest {
         assertFalse(ResearchUrlPolicy.isSafePublicUrl("http://127.0.0.1/"))
         assertFalse(ResearchUrlPolicy.isSafePublicUrl("http://localhost/"))
         assertFalse(ResearchUrlPolicy.isSafePublicUrl("ftp://example.com/resource"))
+        assertFalse(ResearchUrlPolicy.isSafePublicUrl("http://example.com/"))
+        assertFalse(ResearchUrlPolicy.isSafePublicUrl("https://example.com:8443/"))
     }
 }
