@@ -144,12 +144,12 @@ internal class ResearchWebResourceLoader(private val client: OkHttpClient) {
 
     private fun robotsFor(url: HttpUrl, activeCalls: MutableSet<Call>): ResearchRobotsRules {
         if (closed.get()) return ResearchRobotsRules.denyAll()
-        val origin = url.scheme + "://" + url.host
+        val originUrl = url.newBuilder().encodedPath("/").query(null).fragment(null).build()
+        val origin = originUrl.toString().trimEnd('/')
         val now = System.currentTimeMillis()
         robotsCache[origin]?.takeIf { now < it.expiresAt }?.let { return it.rules }
 
-        var current = (origin + "/robots.txt").toHttpUrlOrNull()
-            ?: return ResearchRobotsRules.denyAll()
+        var current = originUrl.newBuilder().encodedPath("/robots.txt").build()
         repeat(MAX_ROBOTS_REDIRECTS + 1) {
             current = ResearchUrlPolicy.safeUrl(current.toString())
                 ?: return ResearchRobotsRules.denyAll()
