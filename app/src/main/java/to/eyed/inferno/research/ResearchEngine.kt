@@ -91,7 +91,8 @@ internal class ResearchEngine(private val client: OkHttpClient) {
                 title, link, item.selectFirst("description")?.text()?.take(500).orEmpty(),
                 item.selectFirst("pubDate")?.text()?.take(100)
             )
-        }.distinctBy { normalizeUrl(it.url) }.take(MAX_SEARCH_RESULTS)
+        }.filter { ResearchSafetyGate.allows(it.title + " " + it.snippet + " " + it.url) }
+            .distinctBy { normalizeUrl(it.url) }.take(MAX_SEARCH_RESULTS)
         return ResearchOutput(
             "News search: $query",
             hits.joinToString("\n\n") { "${it.title}\n${it.url}\nPublished: ${it.publishedAt.orEmpty()}\n${it.snippet}" }
@@ -135,7 +136,8 @@ internal class ResearchEngine(private val client: OkHttpClient) {
             val imageUrl = metadata.string("murl")?.let(::safeUrl)?.toString() ?: return@mapNotNull null
             val pageUrl = metadata.string("purl")?.let(::safeUrl)?.toString() ?: return@mapNotNull null
             ResearchImage(imageUrl, metadata.string("t").orEmpty().ifBlank { "Image result" }, pageUrl)
-        }.distinctBy { it.url }.take(8)
+        }.filter { ResearchSafetyGate.allows(it.alt + " " + it.pageUrl) }
+            .distinctBy { it.url }.take(8)
         val sources = images.map { ResearchSource(it.alt, it.pageUrl, safeUrl(it.pageUrl)?.host ?: "unknown") }.distinctBy { it.url }
         val evidence = images.mapIndexed { i, image ->
             "${i + 1}. ${image.alt}\nImage URL: ${image.url}\nOriginal page: ${image.pageUrl}"
@@ -392,6 +394,7 @@ internal class ResearchEngine(private val client: OkHttpClient) {
         if (!((url.scheme == "https" && url.port == 443) || (url.scheme == "http" && url.port == 80))) return null
         if (url.username.isNotEmpty() || url.password.isNotEmpty()) return null
         val host = url.host.lowercase(Locale.ROOT).trimEnd('.')
+        if (!ResearchSafetyGate.allows(host + url.encodedPath + url.encodedQuery.orEmpty())) return null
         if (host.isBlank() || host == "localhost" || host.endsWith(".localhost") ||
             host.endsWith(".local") || host.endsWith(".internal")) return null
         return runCatching {
