@@ -2,6 +2,9 @@ package to.eyed.inferno.research
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -52,6 +55,8 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
                     "open_page" -> openPage(call.string("url"))
                     "extract_product" -> extractProduct(call.string("url"))
                     "search_images" -> searchImages(call)
+                    "search_videos" -> searchVideos(call)
+                    "search_academic" -> searchAcademic(call)
                     "find_in_page" -> findInPage(call)
                     "follow_links" -> followLinks(call)
                     "compare_sources" -> ResearchOutput("Source comparison", workspace.comparisonNotes())
@@ -66,14 +71,31 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
 
     private suspend fun searchWeb(call: ResearchToolCall): ResearchOutput {
         val query = prepareQuery(call) ?: return blocked()
-        val domains = call.string("domains").split(',', ';', ' ').map(String::trim).filter(String::isNotBlank).take(5)
-        val scoped = if (domains.isEmpty()) query else "$query " + domains.joinToString(" ") { "site:${it.removePrefix("https://").removePrefix("http://").substringBefore('/')}" }
+        val domains = call.string("domains").split(',', ';', ' ')
+            .map(String::trim).filter(String::isNotBlank).take(5)
+            .mapNotNull { raw ->
+                raw.removePrefix("https://").removePrefix("http://").substringBefore('/')
+                    .takeIf { it.isNotBlank() && '/' !in it && ' ' !in it }
+            }
+        val scoped = if (domains.isEmpty()) query else "$query " + domains.joinToString(" ") { "site:$it" }
         val queryWithDate = freshnessQuery(scoped, call.string("freshness"))
-        var hits = runCatching { searchDuckDuckGo(queryWithDate) }.getOrDefault(emptyList())
-        if (hits.size < 4) hits = dedupe(hits + runCatching { searchBing(queryWithDate) }.getOrDefault(emptyList()))
-        val sources = hits.map { it.source() }
-        val evidence = if (hits.isEmpty()) {
-            "No result pages were returned by either public search provider. They may be unavailable, rate-limiting this connection, or disallowing automated access in robots.txt. Try a more focused query or open a known public page."
+        var hits = coroutineScope {
+            val ddg = async { searchProvider { searchDuckDuckGo(queryWithDate) } }
+            val bing = async { searchProvider { searchBing(queryWithDate) } }
+            dedupe(ddg.await() + bing.await())
+        }
+        if (hits.size < MIN_SEARCH_RESULTS) hits = dedupe(hits + searchProvider { searchYahoo(queryWithDate) })
+        hits = rankAndDiversify(query, hits)
+        val pages = coroutineScope {
+            hits.take(MAX_AUTO_OPEN_RESULTS).map { hit -> async { openPageSafely(hit.url) } }
+                .awaitAll()
+                .filterNotNull()
+        }
+        val sources = linkedMapOf<String, ResearchSource>()
+        pages.flatMap { it.sources }.forEach { sources.putIfAbsent(it.url, it) }
+        hits.map { it.source() }.forEach { sources.putIfAbsent(it.url, it) }
+        val snippets = if (hits.isEmpty()) {
+            "No results were returned by DuckDuckGo, Bing, or Yahoo. A provider may be unavailable, rate-limiting this connection, or disallowing automated access in robots.txt."
         } else hits.joinToString("\n\n") { hit ->
             buildString {
                 append(hit.title).append("\n").append(hit.url)
@@ -81,7 +103,49 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
                 if (hit.snippet.isNotBlank()) append("\n").append(hit.snippet.take(500))
             }
         }
-        return ResearchOutput("Web search: $query", evidence.take(8_000), sources)
+        val pageEvidence = pages.joinToString("\n\n") { it.evidence }
+        val evidence = buildString {
+            append("SEARCH RESULTS\n").append(snippets)
+            if (pageEvidence.isNotBlank()) append("\n\nOPENED TOP PAGES\n").append(pageEvidence)
+        }
+        return ResearchOutput("Web search: $query", evidence.take(15_000), sources.values.toList())
+    }
+
+    private suspend fun searchProvider(block: suspend () -> List<SearchHit>): List<SearchHit> =
+        try {
+            block()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            emptyList()
+        }
+
+    private suspend fun openPageSafely(url: String): ResearchOutput? =
+        try {
+            openPage(url)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            null
+        }
+
+    private fun rankAndDiversify(query: String, hits: List<SearchHit>): List<SearchHit> {
+        val ranked = dedupe(hits).sortedWith(
+            compareByDescending<SearchHit> { lexicalScore(query, it.title + " " + it.snippet) }
+                .thenByDescending { it.snippet.length },
+        )
+        val selected = ArrayList<SearchHit>(MAX_SEARCH_RESULTS)
+        val usedHosts = HashSet<String>()
+        ranked.forEach { hit ->
+            val host = safeUrl(hit.url)?.host ?: return@forEach
+            if (usedHosts.add(host) && selected.size < MAX_SEARCH_RESULTS) selected += hit
+        }
+        ranked.forEach { hit ->
+            if (selected.size < MAX_SEARCH_RESULTS &&
+                selected.none { normalizeUrl(it.url) == normalizeUrl(hit.url) }
+            ) selected += hit
+        }
+        return selected
     }
 
     private suspend fun searchNews(call: ResearchToolCall): ResearchOutput {
@@ -110,7 +174,11 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
         val discovery = searchWeb(ResearchToolCall("search_web", jsonArgs("query" to query, "domains" to call.string("domains"))))
         val candidates = discovery.sources.take(4)
         if (candidates.isEmpty()) return ResearchOutput("Product search: $query", discovery.evidence)
-        val pages = candidates.mapNotNull { source -> runCatching { openPage(source.url) }.getOrNull() }
+        val pages = coroutineScope {
+            candidates.map { source -> async { openPageSafely(source.url) } }
+                .awaitAll()
+                .filterNotNull()
+        }
         val evidence = pages.joinToString("\n\n") { it.evidence }
             .ifBlank { discovery.evidence }
         return ResearchOutput(
@@ -134,19 +202,130 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
         val query = prepareQuery(call) ?: return blocked()
         val raw = fetchText("https://www.bing.com/images/search?q=${enc(query)}", true)
         val doc = Jsoup.parse(raw.text, raw.url.toString())
-        val images = doc.select(".iusc").mapNotNull { node ->
-            val metadata = node.attr("m").takeIf(String::isNotBlank)
-                ?.let { runCatching { Json.parseToJsonElement(it).jsonObject }.getOrNull() } ?: return@mapNotNull null
-            val imageUrl = metadata.string("murl")?.let(::safeUrl)?.toString() ?: return@mapNotNull null
-            val pageUrl = metadata.string("purl")?.let(::safeUrl)?.toString() ?: return@mapNotNull null
-            ResearchImage(imageUrl, metadata.string("t").orEmpty().ifBlank { "Image result" }, pageUrl)
-        }.filter { ResearchSafetyGate.allows(it.alt + " " + it.pageUrl) }
-            .distinctBy { it.url }.take(8)
-        val sources = images.map { ResearchSource(it.alt, it.pageUrl, safeUrl(it.pageUrl)?.host ?: "unknown") }.distinctBy { it.url }
-        val evidence = images.mapIndexed { i, image ->
-            "${i + 1}. ${image.alt}\nImage URL: ${image.url}\nOriginal page: ${image.pageUrl}"
-        }.joinToString("\n\n").ifBlank { "No image results were returned." }
-        return ResearchOutput("Image search: $query", evidence, sources, images)
+        val images = doc.select(".iusc[data-m], .iusc[m], a.iusc")
+            .mapNotNull { node ->
+                val rawMetadata = node.attr("m").ifBlank { node.attr("data-m") }
+                val metadata = rawMetadata.takeIf(String::isNotBlank)
+                    ?.let { runCatching { Json.parseToJsonElement(it).jsonObject }.getOrNull() }
+                val thumbnail = node.selectFirst("img")
+                val imageUrl = metadata?.string("murl")?.let(::safeUrl)?.toString()
+                    ?: thumbnail?.let { img ->
+                        listOf(img.absUrl("data-src"), img.absUrl("src"))
+                            .firstNotNullOfOrNull { safeUrl(it)?.toString() }
+                    }
+                    ?: return@mapNotNull null
+                val pageUrl = metadata?.string("purl")?.let(::safeUrl)?.toString()
+                    ?: node.selectFirst("a[href]")?.absUrl("href")?.let(::resolveSearchUrl)
+                    ?: return@mapNotNull null
+                val alt = metadata?.string("t").orEmpty().ifBlank {
+                    thumbnail?.attr("alt")?.takeIf(String::isNotBlank)
+                        ?: node.attr("title").takeIf(String::isNotBlank)
+                        ?: "Image result"
+                }
+                ResearchImage(imageUrl, alt.take(140), pageUrl)
+            }
+            .filter { ResearchSafetyGate.allows(it.alt + " " + it.pageUrl) }
+            .distinctBy { normalizeUrl(it.url) }
+            .take(MAX_IMAGE_RESULTS)
+        val evidence = if (images.isEmpty()) {
+            "The image index returned no usable public image links. Do not invent images or claim results were found."
+        } else {
+            "Retrieved ${images.size} real images for '$query'. The app displays them automatically after the answer. " +
+                "Titles: " + images.mapIndexed { index, image -> "${index + 1}. ${image.alt}" }.joinToString("; ")
+        }
+        return ResearchOutput("Image search: $query", evidence, images = images, renderImages = true)
+    }
+
+    private suspend fun searchVideos(call: ResearchToolCall): ResearchOutput {
+        val query = prepareQuery(call) ?: return blocked()
+        val raw = fetchText(
+            "https://www.bing.com/videos/search?q=${enc(freshnessQuery(query, call.string("freshness")))}",
+            true,
+        )
+        val doc = Jsoup.parse(raw.text, raw.url.toString())
+        val hits = doc.select(".mc_vtvc, .mc_vtvc[data-m], .mc_c")
+            .mapNotNull { node ->
+                val rawMetadata = node.attr("m").ifBlank { node.attr("data-m") }
+                val metadata = rawMetadata.takeIf(String::isNotBlank)
+                    ?.let { runCatching { Json.parseToJsonElement(it).jsonObject }.getOrNull() }
+                val anchor = node.selectFirst("a[href]")
+                val url = metadata?.string("purl")?.let(::safeUrl)?.toString()
+                    ?: anchor?.absUrl("href")?.let(::resolveSearchUrl)
+                    ?: return@mapNotNull null
+                val title = metadata?.string("t").orEmpty().ifBlank {
+                    anchor?.attr("title")?.takeIf(String::isNotBlank) ?: anchor?.text()?.trim().orEmpty()
+                }
+                if (title.isBlank() || !ResearchSafetyGate.allows(title + " " + url)) return@mapNotNull null
+                val duration = metadata?.string("du") ?: metadata?.string("dur")
+                val publisher = metadata?.string("pub") ?: metadata?.string("provider")
+                val snippet = buildString {
+                    publisher?.takeIf(String::isNotBlank)?.let { append("Publisher: ").append(it).append(". ") }
+                    duration?.takeIf(String::isNotBlank)?.let { append("Duration: ").append(it).append(". ") }
+                    node.selectFirst(".mc_vtvc_meta, .mc_vtvc_caption, .mc_vtvc_subtitle")
+                        ?.text()?.takeIf(String::isNotBlank)?.let { append(it.take(280)) }
+                }
+                SearchHit(title.take(220), url, snippet, metadata?.string("pubDate"))
+            }
+            .distinctBy { normalizeUrl(it.url) }
+            .take(MAX_SEARCH_RESULTS)
+        return ResearchOutput(
+            "Video search: $query",
+            hits.joinToString("\n\n") { "${it.title}\n${it.url}\n${it.snippet}" }
+                .ifBlank { "No usable public video results were returned by the video index." },
+            hits.map { it.source() },
+        )
+    }
+
+    private suspend fun searchAcademic(call: ResearchToolCall): ResearchOutput {
+        val query = prepareQuery(call) ?: return blocked()
+        val response = fetchText(
+            "https://api.crossref.org/works?query.bibliographic=${enc(query)}&rows=8",
+            true,
+            MAX_ACADEMIC_BYTES,
+        )
+        val items = runCatching {
+            Json.parseToJsonElement(response.text).jsonObject["message"]?.jsonObject?.get("items") as? JsonArray
+        }.getOrNull() ?: JsonArray(emptyList())
+        val hits = items.mapNotNull { element ->
+            val item = element as? JsonObject ?: return@mapNotNull null
+            val title = (item["title"] as? JsonArray)?.firstOrNull()
+                ?.let { runCatching { it.jsonPrimitive.contentOrNull }.getOrNull() }
+                ?.trim().orEmpty()
+            val url = item.string("URL")?.let(::safeUrl)?.toString()
+                ?: item.string("DOI")?.let { safeUrl("https://doi.org/$it")?.toString() }
+                ?: return@mapNotNull null
+            if (title.isBlank() || !ResearchSafetyGate.allows(title + " " + url)) return@mapNotNull null
+            val authors = (item["author"] as? JsonArray).orEmpty().take(5).mapNotNull { authorElement ->
+                val author = authorElement as? JsonObject ?: return@mapNotNull null
+                listOf(author.string("given"), author.string("family"))
+                    .filterNotNull().joinToString(" ").takeIf(String::isNotBlank)
+            }.joinToString(", ")
+            val journal = (item["container-title"] as? JsonArray)?.firstOrNull()
+                ?.let { runCatching { it.jsonPrimitive.contentOrNull }.getOrNull() }.orEmpty()
+            val dateObject = (item["published-print"] ?: item["published-online"] ?: item["created"]) as? JsonObject
+            val dateParts = (dateObject?.get("date-parts") as? JsonArray)?.firstOrNull() as? JsonArray
+            val published = dateParts?.mapNotNull { part ->
+                runCatching { part.jsonPrimitive.contentOrNull }.getOrNull()
+            }?.joinToString("-")
+            val abstractText = item.string("abstract")?.let { Jsoup.parse(it).text().take(800) }.orEmpty()
+            val snippet = buildString {
+                if (authors.isNotBlank()) append("Authors: ").append(authors).append("\n")
+                if (journal.isNotBlank()) append("Journal: ").append(journal).append("\n")
+                if (abstractText.isNotBlank()) append("Abstract: ").append(abstractText)
+            }
+            SearchHit(title.take(220), url, snippet, published)
+        }.distinctBy { normalizeUrl(it.url) }.take(MAX_SEARCH_RESULTS)
+        return ResearchOutput(
+            "Academic search: $query",
+            hits.joinToString("\n\n") { hit ->
+                buildString {
+                    append(hit.title).append("\n").append(hit.url)
+                    hit.publishedAt?.let { append("\nPublished: ").append(it) }
+                    if (hit.snippet.isNotBlank()) append("\n").append(hit.snippet)
+                }
+            }.ifBlank { "Crossref returned no matching scholarly records." },
+            hits.map { it.source() },
+        )
     }
 
     private suspend fun findInPage(call: ResearchToolCall): ResearchOutput {
@@ -363,9 +542,22 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
         })
     }
 
+    private suspend fun searchYahoo(query: String): List<SearchHit> {
+        val response = fetchText("https://search.yahoo.com/search?p=${enc(query)}", true)
+        val doc = Jsoup.parse(response.text, response.url.toString())
+        return dedupe(doc.select("div.algo, li.algo").mapNotNull { result ->
+            val anchor = result.selectFirst("h3 a, a.ac-al-obj") ?: return@mapNotNull null
+            val url = resolveSearchUrl(anchor.absUrl("href")) ?: return@mapNotNull null
+            SearchHit(anchor.text().trim(), url, result.selectFirst(".compText, .compTitle, p")?.text()?.trim().orEmpty())
+        })
+    }
+
     private fun resolveSearchUrl(raw: String): String? {
         val wrapper = raw.toHttpUrlOrNull() ?: "https://duckduckgo.com".toHttpUrlOrNull()?.resolve(raw)
-        val target = wrapper?.queryParameter("uddg") ?: wrapper?.toString()
+        val yahooTarget = wrapper?.encodedPath?.substringAfter("/RU=", "")
+            ?.takeIf(String::isNotBlank)?.substringBefore("/RK=")
+            ?.let { runCatching { java.net.URLDecoder.decode(it, StandardCharsets.UTF_8.name()) }.getOrNull() }
+        val target = wrapper?.queryParameter("uddg") ?: wrapper?.queryParameter("url") ?: yahooTarget ?: wrapper?.toString()
         return target?.let(::safeUrl)?.toString()
     }
 
@@ -539,6 +731,10 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
     companion object {
         private const val USER_AGENT = "InfernoResearch/1.0 (Android; respectful public-page reader)"
         private const val MAX_SEARCH_RESULTS = 10
+        private const val MIN_SEARCH_RESULTS = 5
+        private const val MAX_AUTO_OPEN_RESULTS = 2
+        private const val MAX_IMAGE_RESULTS = 6
+        private const val MAX_ACADEMIC_BYTES = 1_200_000
         private const val MAX_META_IMAGES = 4
         private const val MAX_PAGE_IMAGES = 48
         private const val MAX_LINK_CANDIDATES = 120

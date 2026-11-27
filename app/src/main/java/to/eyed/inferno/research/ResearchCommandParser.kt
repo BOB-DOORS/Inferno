@@ -297,6 +297,8 @@ internal class ResearchCommandParser(
             "open_page",
             "extract_product",
             "search_images",
+            "search_videos",
+            "search_academic",
             "find_in_page",
             "follow_links",
             "compare_sources",

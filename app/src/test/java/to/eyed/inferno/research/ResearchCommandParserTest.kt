@@ -162,6 +162,14 @@ class ResearchCommandParserTest {
     }
 
     @Test
+    fun videoAndAcademicSearchCommandsAreAccepted() {
+        val parser = ResearchCommandParser()
+        parser.accept("""<search>{"tool":"search_videos","arguments":{"query":"topic"}}</search>""")
+        parser.accept("""<search>{"tool":"search_academic","arguments":{"query":"topic"}}</search>""")
+        assertEquals(listOf("search_videos", "search_academic"), parser.calls.map { it.name })
+    }
+
+    @Test
     fun emptySearchArgumentsAreCapturedWithoutLeakingTheTag() {
         val parser = ResearchCommandParser()
         val malformed = """<search>{"tool":"search_web","arguments":{}}</search>"""
