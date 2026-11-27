@@ -149,6 +149,9 @@ internal class JavascriptPageRenderer(
                         mediaPlaybackRequiresUserGesture = true
                     }
                     CookieManager.getInstance().setAcceptThirdPartyCookies(view, false)
+                    if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                        WebViewCompat.addDocumentStartJavaScript(view, BLOCKED_BROWSER_CAPABILITIES, setOf("*"))
+                    }
 
                     lateinit var capture: () -> Unit
                     lateinit var poll: () -> Unit
@@ -318,6 +321,13 @@ internal class JavascriptPageRenderer(
         private const val MAX_RENDERED_HTML = 1_500_000
         private const val MIN_HTML_LENGTH = 250
         private const val REQUIRED_STABLE_SAMPLES = 2
+        private const val BLOCKED_BROWSER_CAPABILITIES =
+            "for (const key of ['RTCPeerConnection', 'webkitRTCPeerConnection']) {" +
+                "try { Object.defineProperty(window, key, { value: undefined, configurable: false }); } catch (_) {}" +
+            "}" +
+            "try { Object.defineProperty(navigator, 'sendBeacon', { value: () => false, configurable: false }); } catch (_) {}" +
+            "try { Object.defineProperty(navigator, 'serviceWorker', { value: undefined, configurable: false }); } catch (_) {}"
+
         private const val CONTENT_SECURITY_POLICY =
             "default-src 'self'; " +
                 "script-src 'self' 'unsafe-inline' 'unsafe-eval' https: http:; " +
