@@ -61,6 +61,7 @@ internal class LocalWebIndex(context: Context) :
     @Synchronized
     fun enqueue(url: String, depth: Int, priority: Int = 0) {
         if (url.isBlank() || url.length > MAX_URL_CHARS || depth !in 0..MAX_CRAWL_DEPTH) return
+        if (isIndexedFresh(url)) return
         if (!ResearchUrlPolicy.isSafePublicUrl(url)) return
 
         val values = ContentValues().apply {
