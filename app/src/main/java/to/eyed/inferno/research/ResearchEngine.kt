@@ -344,41 +344,27 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
             if (now - cached.cachedAt in 0..ROBOTS_CACHE_MS) return cached
             robotsCache.remove(origin, cached)
         }
+
         val cachedText = persistentCache.get(ResearchPersistentCache.KIND_ROBOTS, origin, ROBOTS_CACHE_MS)
         if (cachedText != null) {
-            return parseRobots(cachedText).copy(cachedAt = now).also { robotsCache[origin] = it }
+            return RobotsRules(ResearchRobotsPolicy.parse(cachedText), now)
+                .also { robotsCache[origin] = it }
         }
+
         val response = try {
             fetchText("$origin/robots.txt", false, MAX_ROBOTS_BYTES)
         } catch (error: Exception) {
             if (error is CancellationException) throw error
-            return RobotsRules(listOf("/"), 0L, now)
+            return RobotsRules(ResearchRobotsRules.denyAll(), now)
         }
-        if (response.code != 404 && response.code !in 200..299) return RobotsRules(listOf("/"), 0L, now)
-        val robotsText = if (response.code == 404) "User-agent: *\n" else response.text
+        if (response.code != 404 && response.code !in 200..299) {
+            return RobotsRules(ResearchRobotsRules.denyAll(), now)
+        }
+
+        val robotsText = if (response.code == 404) "User-agent: *\\n" else response.text
         persistentCache.put(ResearchPersistentCache.KIND_ROBOTS, origin, robotsText)
-        return parseRobots(robotsText).copy(cachedAt = now).also { robotsCache[origin] = it }
-    }
-
-    private fun parseRobots(text: String): RobotsRules {
-        var applies = false
-        val denied = mutableListOf<String>()
-        var crawlDelay = 0L
-        text.lineSequence().map { it.substringBefore('#').trim() }.filter { ':' in it }.forEach { line ->
-            val key = line.substringBefore(':').trim().lowercase(Locale.ROOT)
-            val value = line.substringAfter(':').trim()
-            when (key) {
-                "user-agent" -> applies = value == "*" || value.equals("InfernoResearch", true)
-                "disallow" -> if (applies && value.isNotBlank()) denied += value
-                "crawl-delay" -> if (applies) crawlDelay = ((value.toDoubleOrNull() ?: 0.0) * 1_000).toLong().coerceIn(0, 10_000)
-            }
-        }
-        return RobotsRules(denied, crawlDelay)
-    }
-
-    private fun pathMatches(path: String, pattern: String): Boolean {
-        val rule = pattern.removeSuffix("$")
-        return rule.isNotBlank() && path.startsWith(rule)
+        return RobotsRules(ResearchRobotsPolicy.parse(robotsText), now)
+            .also { robotsCache[origin] = it }
     }
 
     private suspend fun awaitHostSlot(host: String, robotsDelay: Long) {
