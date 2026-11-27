@@ -69,7 +69,7 @@ class AppContainer(app: Application) {
         .followRedirects(false)
         .followSslRedirects(false)
         .build()
-    internal val research = ResearchEngine(researchHttp)
+    internal val research = ResearchEngine(app, researchHttp)
 
     /** ModelRepository's view of the text engine (delete/deleteAll never pull the file from under a live model). */
     private val engineAccess = object : EngineAccess {
