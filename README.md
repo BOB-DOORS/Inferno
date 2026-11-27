@@ -23,7 +23,11 @@ to public websites, but never sends chat history or model prompts to a cloud AI.
   compare sources and collect relevant images. JavaScript-rendered app shells use a fresh, isolated AndroidX WebKit
   profile only when static HTML is insufficient. Every page resource is fetched through the same DNS-validated,
   robots-aware OkHttp client as native research; Chromium does not perform direct HTTP requests. Public-page HTML and
-  robots rules are compressed into a bounded SQLite cache. No API key or cloud model is required.
+  robots rules are compressed into a bounded SQLite cache. It also maintains its own persistent SQLite FTS4
+  web index and crawl frontier: search results, sitemaps and links from opened pages seed a respectful incremental
+  crawler. The local index stores up to 1,500 public text pages; each search crawls at most two queued pages so the
+  phone does not try to mirror the entire Internet. DuckDuckGo, Bing and Yahoo remain discovery fallbacks for
+  pages not yet indexed locally. No API key or cloud model is required.
 
 ## Privacy
 
@@ -38,7 +42,9 @@ resource proxy. The WebView uses a restrictive content policy, blocks forms, fra
 requests, and only supports GET resources; each resource and redirect is checked against public-address and
 robots.txt policies. Devices without WebKit multi-profile support skip JavaScript rendering and use static extraction
 only. There is no telemetry, analytics, account or cloud
-inference. Chats, images and models stay in private app storage and are excluded from Android backups and device transfers.
+inference. The local web index stores only public pages and pending public URLs (up to 1,500 indexed pages
+and 3,000 queued URLs); it can be rebuilt by searching again. Chats, images and models stay in private app storage
+and are excluded from Android backups and device transfers.
 
 ## Requirements
 
