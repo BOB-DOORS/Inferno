@@ -77,8 +77,7 @@ internal class JavascriptPageRenderer(
 
                     fun dispose() {
                         handler.removeCallbacksAndMessages(null)
-                        activeCalls.forEach { it.cancel() }
-                        activeCalls.clear()
+                        resourceLoader.close(activeCalls)
 
                         val active = webView
                         webView = null
