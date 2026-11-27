@@ -170,7 +170,7 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
-    implementation(libs.okhttp)
+    implementation(libs.okhttp)\n    implementation(libs.jsoup)
     implementation(libs.markdown.renderer.m3)
     implementation(libs.coil.compose)
     implementation(libs.icons.lucide)
