@@ -23,7 +23,6 @@ import org.jsoup.Jsoup
 import org.jsoup.parser.Parser
 import java.io.IOException
 import java.net.InetAddress
-import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.Locale
@@ -227,6 +226,9 @@ internal class ResearchEngine(private val client: OkHttpClient) {
         doc.select("script,style,noscript,svg,nav,footer,header,aside,form,button,iframe").remove()
         val cleanRoot = doc.selectFirst("article, main, [role=main]") ?: doc.body()
         val text = cleanRoot.text().replace(Regex("\\s+"), " ").trim().take(MAX_PAGE_TEXT)
+        if (!ResearchSafetyGate.allows(title + " " + description + " " + text.take(4_000))) {
+            throw IOException("This page is outside the supported safe-research categories.")
+        }
         val source = ResearchSource(title.take(220), url.toString(), url.host, description.take(450), published?.take(100))
         val output = ResearchOutput(
             "Page: $title",
@@ -387,7 +389,7 @@ internal class ResearchEngine(private val client: OkHttpClient) {
 
     private fun safeUrl(raw: String): HttpUrl? {
         val url = raw.trim().toHttpUrlOrNull() ?: return null
-        if (url.scheme !in setOf("http", "https") || url.port !in setOf(80, 443)) return null
+        if (!((url.scheme == "https" && url.port == 443) || (url.scheme == "http" && url.port == 80))) return null
         if (url.username.isNotEmpty() || url.password.isNotEmpty()) return null
         val host = url.host.lowercase(Locale.ROOT).trimEnd('.')
         if (host.isBlank() || host == "localhost" || host.endsWith(".localhost") ||
@@ -457,11 +459,11 @@ internal class ResearchEngine(private val client: OkHttpClient) {
 
 private object ResearchSafetyGate {
     private val blocked = listOf(
-        Regex("\\b(firearms?|guns?|ammunition|explosives?|bombs?|detonators?|switchblades?|weaponized|weapons?)\\b", RegexOption.IGNORE_CASE),
-        Regex("\\b(cocaine|heroin|methamphetamine|fentanyl|opioids?|marijuana|cannabis|poisons?|toxins?|steroids)\\b", RegexOption.IGNORE_CASE),
+        Regex("\\b(firearms?|guns?|ammunition|explosives?|bombs?|detonators?|switchblades?|weapons?|knives?|blades?|tasers?|pepper spray|mace|stun guns?|weaponized)\\b", RegexOption.IGNORE_CASE),
+        Regex("\\b(cocaine|heroin|methamphetamine|fentanyl|opioids?|marijuana|cannabis|poisons?|toxins?|pesticides|steroids|intoxicants?|hallucinogens?|controlled substances)\\b", RegexOption.IGNORE_CASE),
         Regex("\\b(suicide|self[- ]harm|self[- ]injury|pro[- ]ana|eating disorder)\\b", RegexOption.IGNORE_CASE),
         Regex("\\b(pornography|porn|adult sex|explicit sexual content|sex toys?)\\b", RegexOption.IGNORE_CASE),
-        Regex("\\b(gambling|casino|sports betting|online betting|nicotine|vape|cigarettes?|alcohol|beer|wine|liquor)\\b", RegexOption.IGNORE_CASE),
+        Regex("\\b(gambling|casino|sports betting|online betting|prediction markets?|betting sites?|nicotine|vape|cigarettes?|alcohol|beer|wine|liquor|dangerous challenge|dangerous stunt)\\b", RegexOption.IGNORE_CASE),
         Regex("\\b(arma de fogo|armas|munição|municoes|explosivos?|bombas?|detonadores?|drogas|cocaína|cocaina|maconha|venenos?|toxinas?|suicídio|suicidio|automutilação|automutilacao|pornografia|cassino|apostas|nicotina|vape|cigarros?|álcool|alcool|cerveja|vinho)\\b", RegexOption.IGNORE_CASE)
     )
     fun allows(query: String): Boolean = blocked.none { it.containsMatchIn(query) }
