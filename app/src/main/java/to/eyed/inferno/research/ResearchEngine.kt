@@ -457,7 +457,17 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
         )
     }
 
-    private suspend fun openPage(rawUrl: String): ResearchOutput = loadPage(rawUrl).output
+    private suspend fun openPage(rawUrl: String): ResearchOutput {
+        val page = loadPage(rawUrl)
+        val source = page.output.sources.firstOrNull()
+        if (source != null) {
+            localIndex.indexPage(source.url, source.title, page.text)
+            page.links.take(MAX_LINKS_PER_CRAWLED_PAGE).forEach { link ->
+                localIndex.enqueue(link.url, depth = 1, priority = 2)
+            }
+        }
+        return page.output
+    }
 
     private suspend fun loadPage(rawUrl: String): PageData {
         val initial = safeUrl(rawUrl) ?: throw IOException("Only public HTTPS pages on port 443 are supported.")
