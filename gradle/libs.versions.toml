@@ -14,6 +14,7 @@ datastore = "1.2.1"
 coroutines = "1.11.0"
 serializationJson = "1.11.0"
 okhttp = "5.5.0"
+webkit = "1.18.0"
 jsoup = "1.21.2"
 markdownRenderer = "0.45.0"
 coil = "3.6.2"
@@ -50,6 +51,7 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serializationJson" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "webkit" }
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 mockwebserver3 = { group = "com.squareup.okhttp3", name = "mockwebserver3", version.ref = "okhttp" }
 markdown-renderer-m3 = { group = "com.mikepenz", name = "multiplatform-markdown-renderer-m3", version.ref = "markdownRenderer" }
