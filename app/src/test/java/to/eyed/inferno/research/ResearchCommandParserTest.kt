@@ -68,6 +68,36 @@ class ResearchCommandParserTest {
     }
 
     @Test
+    fun leadingWhitespaceBeforeSearchTagDoesNotLeakIntoChat() {
+        val parser = ResearchCommandParser()
+        val visible = parser.accept("\n  " + """<search>{"query":"query after whitespace"}</search>""") + parser.finish()
+
+        assertEquals("", visible)
+        assertEquals("query after whitespace", parser.calls.single().string("query"))
+    }
+
+    @Test
+    fun queryArrayCanBeNestedInsideArguments() {
+        val parser = ResearchCommandParser()
+        parser.accept(
+            """<search>{"tool":"search_web","arguments":{"queries":["nested one","nested two"],"freshness":"week"}}</search>""",
+        )
+
+        assertEquals(listOf("nested one", "nested two"), parser.calls.map { it.string("query") })
+        assertTrue(parser.calls.all { it.string("freshness") == "week" })
+    }
+
+    @Test
+    fun invalidToolBlockRequestsDirectAnswerFallbackWithoutLeakingSyntax() {
+        val parser = ResearchCommandParser()
+        val visible = parser.accept("""<search>{"tool":"nonexistent_tool","arguments":{}}</search>""") + parser.finish()
+
+        assertEquals("", visible)
+        assertTrue(parser.calls.isEmpty())
+        assertTrue(parser.needsTextFallback)
+    }
+
+    @Test
     fun completeJsonIsAcceptedWhenSmallModelOmitsClosingSearchTag() {
         val parser = ResearchCommandParser()
         parser.accept("""<search>{"tool":"search_web","arguments":{"query":"missing close tag"}}""")
