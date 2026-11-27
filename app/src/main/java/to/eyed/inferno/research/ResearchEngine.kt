@@ -361,7 +361,7 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
             return RobotsRules(ResearchRobotsRules.denyAll(), now)
         }
 
-        val robotsText = if (response.code == 404) "User-agent: *\\n" else response.text
+        val robotsText = if (response.code == 404) "User-agent: *\n" else response.text
         persistentCache.put(ResearchPersistentCache.KIND_ROBOTS, origin, robotsText)
         return RobotsRules(ResearchRobotsPolicy.parse(robotsText), now)
             .also { robotsCache[origin] = it }
