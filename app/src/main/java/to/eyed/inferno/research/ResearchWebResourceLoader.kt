@@ -30,12 +30,22 @@ internal class ResearchWebResourceLoader(private val client: OkHttpClient) {
     private val robotsCache = ConcurrentHashMap<String, CachedRobots>()
     private val requestCount = AtomicInteger()
     private val totalBytes = AtomicLong()
+    private val closed = AtomicBoolean(false)
+
+    fun close(activeCalls: MutableSet<Call>) {
+        closed.set(true)
+        synchronized(activeCalls) {
+            activeCalls.forEach { it.cancel() }
+            activeCalls.clear()
+        }
+    }
 
     fun intercept(
         request: WebResourceRequest,
         initialPage: HttpUrl,
         activeCalls: MutableSet<Call>,
     ): WebResourceResponse {
+        if (closed.get()) return blocked(499, "Research render has ended.")
         if (!request.method.equals("GET", ignoreCase = true)) {
             return blocked(405, "Only GET requests are allowed.")
         }
@@ -74,7 +84,7 @@ internal class ResearchWebResourceLoader(private val client: OkHttpClient) {
             forwardedHeaders["range"]?.let { requestBuilder.header("Range", it) }
 
             val call = client.newCall(requestBuilder.build())
-            activeCalls.add(call)
+            if (!track(call, activeCalls)) return blocked(499, "Research render has ended.")
             var response: Response? = null
             try {
                 val result = call.execute()
@@ -126,7 +136,7 @@ internal class ResearchWebResourceLoader(private val client: OkHttpClient) {
                 return blocked(502, "Resource response was invalid.")
             } finally {
                 response?.close()
-                activeCalls.remove(call)
+                untrack(call, activeCalls)
             }
         }
 
@@ -134,6 +144,7 @@ internal class ResearchWebResourceLoader(private val client: OkHttpClient) {
     }
 
     private fun robotsFor(url: HttpUrl, activeCalls: MutableSet<Call>): ResearchRobotsRules {
+        if (closed.get()) return ResearchRobotsRules.denyAll()
         val origin = url.scheme + "://" + url.host
         val now = System.currentTimeMillis()
         robotsCache[origin]?.takeIf { now < it.expiresAt }?.let { return it.rules }
@@ -151,7 +162,7 @@ internal class ResearchWebResourceLoader(private val client: OkHttpClient) {
                     .header("Accept", "text/plain,*/*;q=0.1")
                     .build(),
             )
-            activeCalls.add(call)
+            if (!track(call, activeCalls)) return ResearchRobotsRules.denyAll()
             var response: Response? = null
             try {
                 val result = call.execute()
@@ -182,13 +193,27 @@ internal class ResearchWebResourceLoader(private val client: OkHttpClient) {
                 return denied
             } finally {
                 response?.close()
-                activeCalls.remove(call)
+                untrack(call, activeCalls)
             }
         }
 
         val denied = ResearchRobotsRules.denyAll()
         robotsCache[origin] = CachedRobots(denied, now + FAILED_ROBOTS_TTL_MS)
         return denied
+    }
+
+    private fun track(call: Call, activeCalls: MutableSet<Call>): Boolean =
+        synchronized(activeCalls) {
+            if (closed.get()) {
+                call.cancel()
+                false
+            } else {
+                activeCalls.add(call)
+            }
+        }
+
+    private fun untrack(call: Call, activeCalls: MutableSet<Call>) {
+        synchronized(activeCalls) { activeCalls.remove(call) }
     }
 
     private fun readBounded(input: java.io.InputStream, maxBytes: Int): ByteArray {
