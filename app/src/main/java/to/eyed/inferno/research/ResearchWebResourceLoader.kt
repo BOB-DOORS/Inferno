@@ -48,9 +48,9 @@ internal class ResearchWebResourceLoader(private val client: OkHttpClient) {
             return blocked(403, "Cross-origin top-level navigation is blocked.")
         }
 
-        val forwardedHeaders = request.requestHeaders
-            .filterKeys { it.lowercase() in FORWARDED_REQUEST_HEADERS }
-            .filterValues { it.length <= MAX_HEADER_VALUE_CHARS }
+        val forwardedHeaders = request.requestHeaders.entries
+            .filter { it.key.lowercase() in FORWARDED_REQUEST_HEADERS && it.value.length <= MAX_HEADER_VALUE_CHARS }
+            .associate { it.key.lowercase() to it.value }
 
         repeat(MAX_REDIRECTS + 1) {
             current = ResearchUrlPolicy.safeUrl(current.toString())
@@ -63,14 +63,14 @@ internal class ResearchWebResourceLoader(private val client: OkHttpClient) {
             val requestBuilder = Request.Builder()
                 .url(current)
                 .header("User-Agent", USER_AGENT)
-                .header("Accept", forwardedHeaders["Accept"] ?: "*/*")
+                .header("Accept", forwardedHeaders["accept"] ?: "*/*")
 
-            forwardedHeaders["Accept-Language"]?.let { requestBuilder.header("Accept-Language", it) }
-            forwardedHeaders["Origin"]?.takeIf { it.length <= MAX_HEADER_VALUE_CHARS }
+            forwardedHeaders["accept-language"]?.let { requestBuilder.header("Accept-Language", it) }
+            forwardedHeaders["origin"]?.takeIf { it.length <= MAX_HEADER_VALUE_CHARS }
                 ?.let { requestBuilder.header("Origin", it) }
-            forwardedHeaders["Referer"]?.takeIf { it.length <= MAX_HEADER_VALUE_CHARS }
+            forwardedHeaders["referer"]?.takeIf { it.length <= MAX_HEADER_VALUE_CHARS }
                 ?.let { requestBuilder.header("Referer", it) }
-            forwardedHeaders["Range"]?.let { requestBuilder.header("Range", it) }
+            forwardedHeaders["range"]?.let { requestBuilder.header("Range", it) }
 
             val call = client.newCall(requestBuilder.build())
             activeCalls.add(call)
