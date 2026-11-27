@@ -73,7 +73,7 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
         if (hits.size < 4) hits = dedupe(hits + runCatching { searchBing(queryWithDate) }.getOrDefault(emptyList()))
         val sources = hits.map { it.source() }
         val evidence = if (hits.isEmpty()) {
-            "No result pages were returned by either public search provider. They may be unavailable or rate-limiting this connection. Try a more focused query or open a known public page."
+            "No result pages were returned by either public search provider. They may be unavailable, rate-limiting this connection, or disallowing automated access in robots.txt. Try a more focused query or open a known public page."
         } else hits.joinToString("\n\n") { hit ->
             buildString {
                 append(hit.title).append("\n").append(hit.url)
@@ -86,7 +86,7 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
 
     private suspend fun searchNews(call: ResearchToolCall): ResearchOutput {
         val query = prepareQuery(call) ?: return blocked()
-        val raw = fetchText("https://www.bing.com/news/search?q=${enc(freshnessQuery(query, call.string("freshness")))}&format=rss", false)
+        val raw = fetchText("https://www.bing.com/news/search?q=${enc(freshnessQuery(query, call.string("freshness")))}&format=rss", true)
         val doc = Jsoup.parse(raw.text, raw.url.toString(), Parser.xmlParser())
         val hits = doc.select("item").mapNotNull { item ->
             val title = item.selectFirst("title")?.text()?.trim().orEmpty()
@@ -132,7 +132,7 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
 
     private suspend fun searchImages(call: ResearchToolCall): ResearchOutput {
         val query = prepareQuery(call) ?: return blocked()
-        val raw = fetchText("https://www.bing.com/images/search?q=${enc(query)}", false)
+        val raw = fetchText("https://www.bing.com/images/search?q=${enc(query)}", true)
         val doc = Jsoup.parse(raw.text, raw.url.toString())
         val images = doc.select(".iusc").mapNotNull { node ->
             val metadata = node.attr("m").takeIf(String::isNotBlank)
@@ -311,7 +311,7 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
     }
 
     private suspend fun searchDuckDuckGo(query: String): List<SearchHit> {
-        val response = fetchText("https://html.duckduckgo.com/html/?q=${enc(query)}", false)
+        val response = fetchText("https://html.duckduckgo.com/html/?q=${enc(query)}", true)
         val doc = Jsoup.parse(response.text, response.url.toString())
         return dedupe(doc.select(".result").mapNotNull { result ->
             val anchor = result.selectFirst("a.result__a") ?: return@mapNotNull null
@@ -322,7 +322,7 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
     }
 
     private suspend fun searchBing(query: String): List<SearchHit> {
-        val response = fetchText("https://www.bing.com/search?q=${enc(query)}", false)
+        val response = fetchText("https://www.bing.com/search?q=${enc(query)}", true)
         val doc = Jsoup.parse(response.text, response.url.toString())
         return dedupe(doc.select("li.b_algo").mapNotNull { result ->
             val anchor = result.selectFirst("h2 a") ?: return@mapNotNull null
