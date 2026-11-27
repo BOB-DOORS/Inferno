@@ -302,6 +302,7 @@ internal class ResearchCommandParser(
             "search_forums",
             "search_wiki",
             "search_repositories",
+            "search_places",
             "find_in_page",
             "follow_links",
             "compare_sources",

@@ -182,6 +182,13 @@ class ResearchCommandParserTest {
     }
 
     @Test
+    fun placeSearchCommandIsAccepted() {
+        val parser = ResearchCommandParser()
+        parser.accept("""<search>{"tool":"search_places","arguments":{"query":"museums in São Paulo"}}</search>""")
+        assertEquals("search_places", parser.calls.single().name)
+    }
+
+    @Test
     fun emptySearchArgumentsAreCapturedWithoutLeakingTheTag() {
         val parser = ResearchCommandParser()
         val malformed = """<search>{"tool":"search_web","arguments":{}}</search>"""

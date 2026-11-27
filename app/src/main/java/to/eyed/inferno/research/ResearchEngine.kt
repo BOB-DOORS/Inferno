@@ -61,6 +61,7 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
                     "search_forums" -> searchForums(call)
                     "search_wiki" -> searchWiki(call)
                     "search_repositories" -> searchRepositories(call)
+                    "search_places" -> searchPlaces(call)
                     "find_in_page" -> findInPage(call)
                     "follow_links" -> followLinks(call)
                     "compare_sources" -> ResearchOutput("Source comparison", workspace.comparisonNotes())
@@ -292,6 +293,54 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
             "Wikipedia search: $query",
             hits.joinToString("\n\n") { "${it.title}\n${it.url}\n${it.snippet}" }
                 .ifBlank { "Wikipedia returned no matching encyclopedia pages." },
+            hits.map { it.source() },
+        )
+    }
+
+    private suspend fun searchPlaces(call: ResearchToolCall): ResearchOutput {
+        val query = prepareQuery(call) ?: return blocked()
+        val response = fetchText(
+            "https://nominatim.openstreetmap.org/search?q=${enc(query)}&format=jsonv2&limit=8&addressdetails=1",
+            true,
+            MAX_PLACES_BYTES,
+        )
+        val items = runCatching {
+            Json.parseToJsonElement(response.text) as? JsonArray
+        }.getOrNull() ?: JsonArray(emptyList())
+        val hits = items.mapNotNull { element ->
+            val item = element as? JsonObject ?: return@mapNotNull null
+            val name = item.string("name").orEmpty().ifBlank { item.string("display_name").orEmpty() }
+            val displayName = item.string("display_name").orEmpty()
+            val latitude = item.string("lat").orEmpty()
+            val longitude = item.string("lon").orEmpty()
+            val osmType = item.string("osm_type").orEmpty()
+            val osmId = item.string("osm_id").orEmpty()
+            val url = when (osmType.lowercase(Locale.ROOT)) {
+                "node" -> "https://www.openstreetmap.org/node/$osmId"
+                "way" -> "https://www.openstreetmap.org/way/$osmId"
+                "relation" -> "https://www.openstreetmap.org/relation/$osmId"
+                else -> ""
+            }.let(::safeUrl)?.toString() ?: return@mapNotNull null
+            if (name.isBlank() || displayName.isBlank() ||
+                !ResearchSafetyGate.allows(name + " " + displayName + " " + url)
+            ) return@mapNotNull null
+            val placeType = listOfNotNull(item.string("category"), item.string("type"))
+                .filter(String::isNotBlank).distinct().joinToString(" / ")
+            val importance = item.string("importance").orEmpty()
+            val snippet = buildString {
+                append(displayName.take(420))
+                if (placeType.isNotBlank()) append("\nType: ").append(placeType)
+                if (latitude.isNotBlank() && longitude.isNotBlank()) {
+                    append("\nCoordinates: ").append(latitude).append(", ").append(longitude)
+                }
+                if (importance.isNotBlank()) append("\nIndex importance: ").append(importance)
+            }
+            SearchHit(name.take(200), url, snippet)
+        }.distinctBy { normalizeUrl(it.url) }.take(MAX_SEARCH_RESULTS)
+        return ResearchOutput(
+            "Place search: $query",
+            hits.joinToString("\n\n") { "${it.title}\n${it.url}\n${it.snippet}" }
+                .ifBlank { "OpenStreetMap returned no matching public places." },
             hits.map { it.source() },
         )
     }
@@ -800,7 +849,8 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
                 val rules = robotsFor(current).policy
                 val pathAndQuery = current.encodedPath + current.encodedQuery?.let { "?$it" }.orEmpty()
                 if (!rules.allows(pathAndQuery)) throw IOException("robots.txt disallows this URL.")
-                awaitHostSlot(current.host, rules.crawlDelayMs)
+                val minimumDelay = if (current.host == NOMINATIM_HOST) NOMINATIM_MIN_INTERVAL_MS else MIN_HOST_INTERVAL_MS
+                awaitHostSlot(current.host, maxOf(rules.crawlDelayMs, minimumDelay))
             }
 
             val request = Request.Builder().url(current)
@@ -941,6 +991,9 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
         private const val MAX_ACADEMIC_BYTES = 1_200_000
         private const val MAX_WIKI_BYTES = 900_000
         private const val MAX_REPOSITORY_BYTES = 1_500_000
+        private const val MAX_PLACES_BYTES = 1_000_000
+        private const val NOMINATIM_HOST = "nominatim.openstreetmap.org"
+        private const val NOMINATIM_MIN_INTERVAL_MS = 1_000L
         private const val MAX_META_IMAGES = 4
         private const val MAX_PAGE_IMAGES = 48
         private const val MAX_LINK_CANDIDATES = 120
