@@ -246,8 +246,9 @@ internal class JavascriptPageRenderer(context: Context) {
                             handler: SslErrorHandler,
                             error: android.net.http.SslError,
                         ) {
-                            // A failed third-party asset must not discard otherwise useful page content.
+                            // A TLS failure for the requested origin makes the captured document untrustworthy.
                             handler.cancel()
+                            if (error.url.toHttpUrlOrNull()?.host == requested.host) complete(null)
                         }
 
                         override fun onRenderProcessGone(
