@@ -417,6 +417,12 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
             val workspace = ResearchWorkspace()
             val researchEnabled = settings.webResearchEnabled
             var activeMessages = messages
+            if (researchEnabled) {
+                val firstResearchSystem = ResearchPrompt.compose(system, workspace, true)
+                val firstResearchFit = c.contextManager.fit(firstResearchSystem, messages.filterNot { it.role == "system" }, promptImages, nCtx, reserve, 0)
+                activeMessages = firstResearchFit.messages
+                promptImages = firstResearchFit.images
+            }
             var researchCalls = 0
             var completed = false
             while (!completed) {
