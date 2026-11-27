@@ -215,7 +215,17 @@ WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING O
 USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-## 7. Apache-2.0 licensed Kotlin/Android libraries
+## 7. MIT-licensed Markdown and mathematics
+
+| Component | Version | Licence | Source |
+|---|---:|---|---|
+| Enriched Markdown Android Compose renderer | 0.3.0 | MIT | https://github.com/software-mansion/enriched-markdown |
+| RaTeX Android LaTeX renderer (transitive dependency of Enriched Markdown math) | transitive | MIT | https://github.com/erweixin/RaTeX |
+
+Enriched Markdown renders native Markdown content. The optional math artifact supplies RaTeX and the KaTeX fonts
+for inline and display-mode LaTeX. Both projects are distributed under the MIT licence.
+
+## 8. Apache-2.0 licensed Kotlin/Android libraries
 
 All of the following are used under the Apache License, Version 2.0 (full text in section 8):
 
@@ -232,7 +242,7 @@ All of the following are used under the Apache License, Version 2.0 (full text i
 | KleidiAI (Arm) | v1.24.0 | see section 3 |
 | OpenCL-Headers (Khronos Group) | pinned submodule `third_party/OpenCL-Headers` | https://github.com/KhronosGroup/OpenCL-Headers |
 
-## 8. Apache License, Version 2.0
+## 9. Apache License, Version 2.0
 
 ```
                                  Apache License

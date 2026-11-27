@@ -71,6 +71,18 @@ class MarkdownChunkerTest {
     }
 
     @Test
+    fun `display math survives blank lines as one chunk`() {
+        val source = "intro\n\n\$\$\n\\delta = \\frac{a}{b}\n\n\\int_0^1 x^2 dx\n\$\$\n\nafter"
+        val chunks = MarkdownChunker.chunks(source)
+
+        assertEquals(3, chunks.size)
+        assertTrue(chunks[1].startsWith("\$\$\n"))
+        assertTrue(chunks[1].contains("\\delta"))
+        assertTrue(chunks[1].endsWith("\$\$"))
+        assertEquals("after", chunks[2])
+    }
+
+    @Test
     fun `duration formatting`() {
         assertEquals("8.1 s", formatDuration(8_100))
         assertEquals("1 min 8 s", formatDuration(68_000))
