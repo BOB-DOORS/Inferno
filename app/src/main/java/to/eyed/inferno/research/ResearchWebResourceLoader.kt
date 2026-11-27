@@ -76,8 +76,8 @@ internal class ResearchWebResourceLoader(private val client: OkHttpClient) {
             activeCalls.add(call)
             var response: Response? = null
             try {
-                response = call.execute()
-                val result = response
+                val result = call.execute()
+                response = result
                 if (result.code in REDIRECT_CODES) {
                     val location = result.header("Location")
                         ?: return blocked(result.code, "Redirect did not include a destination.")
@@ -93,7 +93,7 @@ internal class ResearchWebResourceLoader(private val client: OkHttpClient) {
                 val bytes = if (body == null) {
                     ByteArray(0)
                 } else {
-                    if (body.contentLength() > MAX_RESOURCE_BYTES) {
+                    if (body.contentLength() > MAX_RESOURCE_BYTES.toLong()) {
                         return blocked(413, "Resource exceeded the research size limit.")
                     }
                     body.byteStream().use { readBounded(it, MAX_RESOURCE_BYTES) }
@@ -153,8 +153,8 @@ internal class ResearchWebResourceLoader(private val client: OkHttpClient) {
             activeCalls.add(call)
             var response: Response? = null
             try {
-                response = call.execute()
-                val result = response
+                val result = call.execute()
+                response = result
                 if (result.code in REDIRECT_CODES) {
                     val location = result.header("Location") ?: return ResearchRobotsRules.denyAll()
                     current = current.resolve(location)?.toString()?.let(ResearchUrlPolicy::safeUrl)
@@ -166,9 +166,8 @@ internal class ResearchWebResourceLoader(private val client: OkHttpClient) {
                     result.code == 404 -> ResearchRobotsPolicy.parse("User-agent: *\n")
                     result.code in 200..299 -> {
                         val body = result.body ?: return ResearchRobotsRules.denyAll()
-                        if (body.contentLength() > MAX_ROBOTS_BYTES) return ResearchRobotsRules.denyAll()
-                        val text = body.byteStream().use { readBounded(it, MAX_ROBOTS_BYTES) }
-                            .toString(StandardCharsets.UTF_8)
+                        if (body.contentLength() > MAX_ROBOTS_BYTES.toLong()) return ResearchRobotsRules.denyAll()
+                        val text = String(body.byteStream().use { readBounded(it, MAX_ROBOTS_BYTES) }, StandardCharsets.UTF_8)
                         ResearchRobotsPolicy.parse(text)
                     }
                     else -> ResearchRobotsRules.denyAll()
@@ -231,9 +230,9 @@ internal class ResearchWebResourceLoader(private val client: OkHttpClient) {
     companion object {
         private const val USER_AGENT = "InfernoResearch/1.0 (Android; isolated JavaScript page reader)"
         private const val MAX_RESOURCE_REQUESTS = 96
-        private const val MAX_RESOURCE_BYTES = 2_000_000L
+        private const val MAX_RESOURCE_BYTES = 2_000_000
         private const val MAX_TOTAL_RESOURCE_BYTES = 8_000_000L
-        private const val MAX_ROBOTS_BYTES = 96_000L
+        private const val MAX_ROBOTS_BYTES = 96_000
         private const val MAX_REDIRECTS = 4
         private const val MAX_ROBOTS_REDIRECTS = 3
         private const val ROBOTS_TTL_MS = 24 * 60 * 60 * 1_000L
