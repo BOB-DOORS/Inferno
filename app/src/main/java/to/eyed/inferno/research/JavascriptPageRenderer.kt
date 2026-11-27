@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import android.webkit.CookieManager
 import android.webkit.JsPromptResult
 import android.webkit.JsResult
 import android.webkit.PermissionRequest
@@ -17,6 +16,9 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.webkit.ProfileStore
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -27,14 +29,16 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.json.JSONObject
 import org.json.JSONTokener
 import java.io.ByteArrayInputStream
+import java.util.UUID
 import kotlin.coroutines.resume
 
 /**
  * Temporary Android WebView fallback for JavaScript application shells.
  *
- * It is serialized because CookieManager's first-party cookie switch is application-wide. The previous
- * setting is restored after each render. Third-party cookies, file/content access, popups, downloads,
- * permission requests, mixed content, and navigation away from the requested origin are not permitted.
+ * Each render gets a fresh AndroidX WebKit profile. Cookies, DOM storage, IndexedDB and cache therefore
+ * cannot leak into the app's default WebView profile or into a later research page. The profile is deleted
+ * after its WebView is destroyed. If the installed WebView lacks multi-profile support, static extraction
+ * remains available and this optional JavaScript fallback safely returns no result.
  */
 internal class JavascriptPageRenderer(context: Context) {
     private val appContext = context.applicationContext
@@ -50,8 +54,8 @@ internal class JavascriptPageRenderer(context: Context) {
                 suspendCancellableCoroutine { continuation ->
                     val handler = Handler(Looper.getMainLooper())
                     var webView: WebView? = null
-                    var cookieManager: CookieManager? = null
-                    var previousCookieAcceptance: Boolean? = null
+                    var profileStore: ProfileStore? = null
+                    var profileName: String? = null
                     var finished = false
                     var samplingStarted = false
                     var lastSignature = ""
@@ -67,13 +71,13 @@ internal class JavascriptPageRenderer(context: Context) {
                         active?.webViewClient = WebViewClient()
                         active?.destroy()
 
-                        // CookieManager is global to the app's WebViews; always restore its prior state.
-                        val manager = cookieManager
-                        val previous = previousCookieAcceptance
-                        cookieManager = null
-                        previousCookieAcceptance = null
-                        if (manager != null && previous != null) {
-                            manager.setAcceptCookie(previous)
+                        // Deleting a unique profile removes its cookies, DOM storage, databases and cache.
+                        val store = profileStore
+                        val name = profileName
+                        profileStore = null
+                        profileName = null
+                        if (store != null && name != null) {
+                            runCatching { store.deleteProfile(name) }
                         }
                     }
 
@@ -88,17 +92,28 @@ internal class JavascriptPageRenderer(context: Context) {
                         handler.post { complete(null) }
                     }
 
+                    if (!WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+                        complete(null)
+                        return@suspendCancellableCoroutine
+                    }
+
                     val view = runCatching { WebView(appContext) }.getOrElse {
                         complete(null)
                         return@suspendCancellableCoroutine
                     }
                     webView = view
 
-                    val cookies = CookieManager.getInstance()
-                    cookieManager = cookies
-                    previousCookieAcceptance = cookies.acceptCookie()
-                    cookies.setAcceptCookie(false)
-                    cookies.setAcceptThirdPartyCookies(view, false)
+                    try {
+                        val store = ProfileStore.getInstance()
+                        val name = "inferno_research_" + UUID.randomUUID().toString().replace("-", "")
+                        profileStore = store
+                        profileName = name
+                        // Must happen before touching WebView settings, clients, or loading a URL.
+                        WebViewCompat.setProfile(view, name)
+                    } catch (_: Exception) {
+                        complete(null)
+                        return@suspendCancellableCoroutine
+                    }
 
                     view.settings.apply {
                         javaScriptEnabled = true
@@ -118,6 +133,7 @@ internal class JavascriptPageRenderer(context: Context) {
                         setGeolocationEnabled(false)
                         mediaPlaybackRequiresUserGesture = true
                     }
+                    android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(view, false)
 
                     fun deniedResponse() = WebResourceResponse(
                         "text/plain",
@@ -232,6 +248,14 @@ internal class JavascriptPageRenderer(context: Context) {
                         ) {
                             // A failed third-party asset must not discard otherwise useful page content.
                             handler.cancel()
+                        }
+
+                        override fun onRenderProcessGone(
+                            view: WebView,
+                            detail: android.webkit.RenderProcessGoneDetail,
+                        ): Boolean {
+                            complete(null)
+                            return true
                         }
                     }
 
