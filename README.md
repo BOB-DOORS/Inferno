@@ -1,7 +1,8 @@
 # Inferno
 
-Private AI that runs entirely on your Android phone. Chat with vision-capable language models, ask questions
-about photos, and generate images, all on the device's CPU. Nothing leaves the phone.
+Private AI for Android. Chat with vision-capable language models, ask questions about photos, and generate images
+on-device. Optional web research can be enabled separately; it sends focused search queries and requested public URLs
+to public websites, but never sends chat history or model prompts to a cloud AI.
 
 <p align="center">
   <img src="app/src/main/ic_launcher-playstore.png" width="96" alt="Inferno logo">
@@ -18,12 +19,16 @@ about photos, and generate images, all on the device's CPU. Nothing leaves the p
 * **Three experience levels.** Normal shows only what a consumer needs; Power user adds context, prompt and
   sampling controls; Developer exposes engine internals and timings.
 * **Works in the background.** Answers and images keep generating when you switch apps.
+* **Optional agentic web research.** The local model decides when to search, open pages, extract product metadata,
+  compare sources and collect relevant images. No API key or cloud model is required.
 
 ## Privacy
 
-Everything runs offline. The only network use is downloading model files when you ask for them. There is no
-telemetry, no analytics, no account, and no cloud fallback. Chats, images, and models stay in the app's private
-storage and are excluded from Android backups and device transfers.
+Inference, chat history, image generation and storage remain on-device. Web research is disabled by default. When
+enabled, focused search queries and URLs of pages the local model asks to open are sent to public websites; chat
+history, system prompts, attachments and generated model output are not uploaded to a cloud AI. Page responses are
+processed locally. There is no telemetry, analytics, account or cloud inference. Chats, images and models stay in
+private app storage and are excluded from Android backups and device transfers.
 
 ## Requirements
 
