@@ -171,6 +171,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
+    implementation(libs.androidx.webkit)
     implementation(libs.jsoup)
     implementation(libs.markdown.renderer.m3)
     implementation(libs.coil.compose)
