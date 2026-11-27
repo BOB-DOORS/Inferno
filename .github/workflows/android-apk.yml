@@ -35,12 +35,15 @@ jobs:
           java-version: "17"
 
       - name: Use the preinstalled Android SDK
-        run: echo "$ANDROID_HOME/cmdline-tools/16.0/bin" >> "$GITHUB_PATH"
+        run: |
+          echo "/usr/local/lib/android/sdk/cmdline-tools/16.0/bin" >> "$GITHUB_PATH"
+          echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
 
       - name: Install Android native toolchains
         run: |
-          sdkmanager "platforms;android-37.0" "platforms;android-37.1" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;4.1.2"
-          yes | sdkmanager --licenses
+          /usr/local/lib/android/sdk/cmdline-tools/16.0/bin/sdkmanager "platforms;android-37.0" "platforms;android-37.1" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;4.1.2"
+          yes | /usr/local/lib/android/sdk/cmdline-tools/16.0/bin/sdkmanager --licenses
 
       - name: Configure Gradle
         uses: gradle/actions/setup-gradle@v4
