@@ -20,14 +20,17 @@ to public websites, but never sends chat history or model prompts to a cloud AI.
   sampling controls; Developer exposes engine internals and timings.
 * **Works in the background.** Answers and images keep generating when you switch apps.
 * **Optional agentic web research.** The local model decides when to search, open pages, extract product metadata,
-  compare sources and collect relevant images. No API key or cloud model is required.
+  compare sources and collect relevant images. JavaScript-rendered app shells use a temporary local Android WebView
+  only when static HTML is insufficient. Public-page HTML and robots rules are compressed into a bounded SQLite cache
+  so cached pages survive app restarts. No API key or cloud model is required.
 
 ## Privacy
 
 Inference, chat history, image generation and storage remain on-device. Web research is disabled by default. When
 enabled, focused search queries and URLs of pages the local model asks to open are sent to public websites; chat
 history, system prompts, attachments and generated model output are not uploaded to a cloud AI. Page responses are
-processed locally. There is no telemetry, analytics, account or cloud inference. Chats, images and models stay in
+processed locally. A private compressed SQLite cache stores public page HTML for up to 6 hours and robots.txt rules
+for up to 24 hours, with an 18 MB total size cap; old entries are evicted automatically. There is no telemetry, analytics, account or cloud inference. Chats, images and models stay in
 private app storage and are excluded from Android backups and device transfers.
 
 ## Requirements
