@@ -9,6 +9,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.buildJsonObject
+import java.util.Locale
 
 /**
  * Parses a command-only first generation pass without adding a classifier pass.
@@ -36,6 +37,7 @@ internal class ResearchCommandParser(
     private val maxCommands = maxCommands.coerceIn(0, MAX_COMMANDS)
     private var mode = Mode.PROBE
     private val candidate = StringBuilder()
+    private val leadingWhitespace = StringBuilder()
     private val header = StringBuilder()
     private val body = StringBuilder()
     private val commands = ArrayList<ResearchToolCall>()
@@ -87,7 +89,8 @@ internal class ResearchCommandParser(
 
         if (commands.isNotEmpty() || needsTextFallback) return ""
         return when (mode) {
-            Mode.PROBE, Mode.PROBE_NEXT -> candidate.toString()
+            Mode.PROBE -> leadingWhitespace.toString() + candidate.toString()
+            Mode.PROBE_NEXT -> candidate.toString()
             Mode.TAG_BODY -> "<search>" + body
             Mode.LEGACY_SINGLE_HEADER -> LEGACY_SINGLE_START + header
             Mode.LEGACY_DOUBLE_HEADER -> LEGACY_DOUBLE_START + header
@@ -98,11 +101,14 @@ internal class ResearchCommandParser(
 
     private fun acceptProbe(character: Char, visible: StringBuilder) {
         if (candidate.isEmpty()) {
-            if (character == '<' || character == '[') {
+            if (character.isWhitespace() && mode == Mode.PROBE && leadingWhitespace.length < MAX_LEADING_WHITESPACE) {
+                leadingWhitespace.append(character)
+            } else if (character == '<' || character == '[') {
                 candidate.append(character)
             } else {
                 mode = Mode.TEXT
-                visible.append(character)
+                visible.append(leadingWhitespace).append(character)
+                leadingWhitespace.setLength(0)
             }
             return
         }
@@ -131,7 +137,8 @@ internal class ResearchCommandParser(
                     candidate.setLength(0)
                     mode = Mode.SUPPRESS
                 } else {
-                    visible.append(candidate)
+                    visible.append(leadingWhitespace).append(candidate)
+                    leadingWhitespace.setLength(0)
                     candidate.setLength(0)
                     mode = Mode.TEXT
                 }
@@ -247,7 +254,7 @@ internal class ResearchCommandParser(
     }
 
     private fun addCall(rawName: String, arguments: JsonObject): Boolean {
-        val name = rawName.trim().lowercase()
+        val name = rawName.trim().lowercase(Locale.ROOT)
         if (name !in ALLOWED_TOOLS || commands.size >= maxCommands) return false
         if (!ResearchSafetyGate.allows(arguments.toString())) return false
         commands += ResearchToolCall(name, arguments)
@@ -271,6 +278,7 @@ internal class ResearchCommandParser(
         private const val MAX_COMMANDS = 5
         private const val MAX_PAYLOAD_CHARS = 8_000
         private const val MAX_TOOL_NAME_CHARS = 40
+        private const val MAX_LEADING_WHITESPACE = 8
         private const val MAX_QUERY_CHARS = 320
         private val COMMAND_PREFIXES = listOf(TAG_START, LEGACY_SINGLE_START, LEGACY_DOUBLE_START)
         private val ALLOWED_TOOLS = setOf(
