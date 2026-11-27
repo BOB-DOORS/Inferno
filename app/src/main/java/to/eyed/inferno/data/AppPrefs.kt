@@ -75,7 +75,7 @@ data class SettingsState(
     val imageDetail: ImageDetail = ImageDetail.BALANCED,
     // chat
     val streamingAnimations: Boolean = true,
-    val haptics: Boolean = true,
+    val haptics: Boolean = true,\n    val webResearchEnabled: Boolean = false,
     // downloads
     val allowMeteredDownloads: Boolean = false, // Settings > Storage; when false a metered network requires a per-download confirm
     val notificationsAsked: Boolean = false,    // POST_NOTIFICATIONS was requested once (5.6 Root.kt); never asked again
@@ -157,7 +157,7 @@ class AppPrefs(
     suspend fun setThinking(v: Boolean) = update { it.copy(thinking = v) }
     suspend fun setImageDetail(d: ImageDetail) = update { it.copy(imageDetail = d) }
     suspend fun setStreamingAnimations(v: Boolean) = update { it.copy(streamingAnimations = v) }
-    suspend fun setHaptics(v: Boolean) = update { it.copy(haptics = v) }
+    suspend fun setHaptics(v: Boolean) = update { it.copy(haptics = v) }\n    suspend fun setWebResearchEnabled(v: Boolean) = update { it.copy(webResearchEnabled = v) }
     override suspend fun setAllowMeteredDownloads(allow: Boolean) = update { it.copy(allowMeteredDownloads = allow) }
     suspend fun setNotificationsAsked(v: Boolean) = update { it.copy(notificationsAsked = v) }
     override suspend fun setSelectedModel(id: String?) = update { it.copy(selectedModelId = id) }
@@ -204,7 +204,7 @@ private object K {
     val imageDetail = stringPreferencesKey("imageDetail")
     val autoTrim = booleanPreferencesKey("autoTrim")
     val streamingAnimations = booleanPreferencesKey("streamingAnimations")
-    val haptics = booleanPreferencesKey("haptics")
+    val haptics = booleanPreferencesKey("haptics")\n    val webResearchEnabled = booleanPreferencesKey("webResearchEnabled")
     val allowMeteredDownloads = booleanPreferencesKey("allowMeteredDownloads")
     val notificationsAsked = booleanPreferencesKey("notificationsAsked")
     val selectedModelId = stringPreferencesKey("selectedModelId")
@@ -249,7 +249,7 @@ internal fun Preferences.toState(): SettingsState {
         thinking = this[K.thinking] ?: d.thinking,
         imageDetail = enum(this[K.imageDetail], d.imageDetail),
         streamingAnimations = this[K.streamingAnimations] ?: d.streamingAnimations,
-        haptics = this[K.haptics] ?: d.haptics,
+        haptics = this[K.haptics] ?: d.haptics,\n        webResearchEnabled = this[K.webResearchEnabled] ?: d.webResearchEnabled,
         allowMeteredDownloads = this[K.allowMeteredDownloads] ?: d.allowMeteredDownloads,
         notificationsAsked = this[K.notificationsAsked] ?: d.notificationsAsked,
         selectedModelId = this[K.selectedModelId],
@@ -294,7 +294,7 @@ internal fun MutablePreferences.write(s: SettingsState) {
     this[K.thinking] = s.thinking
     this[K.imageDetail] = s.imageDetail.name
     this[K.streamingAnimations] = s.streamingAnimations
-    this[K.haptics] = s.haptics
+    this[K.haptics] = s.haptics\n    this[K.webResearchEnabled] = s.webResearchEnabled
     this[K.allowMeteredDownloads] = s.allowMeteredDownloads
     this[K.notificationsAsked] = s.notificationsAsked
     setOrRemove(K.selectedModelId, s.selectedModelId)
