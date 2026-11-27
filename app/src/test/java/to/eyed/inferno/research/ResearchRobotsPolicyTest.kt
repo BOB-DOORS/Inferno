@@ -33,7 +33,7 @@ class ResearchRobotsPolicyTest {
                 Disallow: /shared
 
                 User-agent: InfernoResearch
-                Allow: /shared
+                Allow: /
                 Disallow: /private
             """.trimIndent(),
         )
