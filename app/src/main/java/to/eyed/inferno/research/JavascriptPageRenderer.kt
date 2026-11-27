@@ -136,7 +136,7 @@ internal class JavascriptPageRenderer(context: Context) {
                             if ((elapsed >= MIN_SETTLE_MS && stableSamples >= 2) || elapsed >= MAX_SETTLE_MS) {
                                 capture()
                             } else {
-                                handler.postDelayed(poll, SAMPLE_INTERVAL_MS)
+                                handler.postDelayed({ poll() }, SAMPLE_INTERVAL_MS)
                             }
                         }
                     }
