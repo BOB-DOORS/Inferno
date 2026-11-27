@@ -376,10 +376,14 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
 
     private suspend fun fetchText(rawUrl: String, robots: Boolean, maxBytes: Int = MAX_PAGE_BYTES): TextResponse {
         var current = safeUrl(rawUrl) ?: throw IOException("Unsafe URL.")
-        if (robots && robotsFor(current).disallowed.any { pathMatches(current.encodedPath, it) }) {
-            throw IOException("robots.txt disallows this URL.")
-        }
         repeat(MAX_REDIRECTS + 1) {
+            if (robots) {
+                val rules = robotsFor(current).policy
+                val pathAndQuery = current.encodedPath + current.encodedQuery?.let { "?$it" }.orEmpty()
+                if (!rules.allows(pathAndQuery)) throw IOException("robots.txt disallows this URL.")
+                awaitHostSlot(current.host, rules.crawlDelayMs)
+            }
+
             val request = Request.Builder().url(current)
                 .header("User-Agent", USER_AGENT)
                 .header("Accept", "text/html,application/xhtml+xml,application/rss+xml,application/xml;q=0.9,*/*;q=0.5")
@@ -393,20 +397,39 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
                         ?: throw IOException("Unsafe redirect destination.")
                     return@repeat
                 }
-                if (res.code == 404 && current.encodedPath == "/robots.txt") return TextResponse("", current, 404)
-                if (!res.isSuccessful) throw IOException("HTTP ${res.code} from ${current.host}.")
+                if (res.code == 404 && current.encodedPath == "/robots.txt") {
+                    return TextResponse("", current, 404)
+                }
+                if (!res.isSuccessful) throw IOException("HTTP " + res.code + " from " + current.host + ".")
                 val body = res.body ?: throw IOException("Empty response.")
-                val mime = body.contentType()?.let { "${it.type}/${it.subtype}".lowercase(Locale.ROOT) }.orEmpty()
-                if (mime.isNotBlank() && !mime.startsWith("text/") && !mime.contains("xml") && !mime.contains("html") && !mime.contains("json")) {
+                val mime = body.contentType()?.let { it.type + "/" + it.subtype }.orEmpty().lowercase(Locale.ROOT)
+                if (mime.isNotBlank() && !mime.startsWith("text/") && !mime.contains("xml") &&
+                    !mime.contains("html") && !mime.contains("json")
+                ) {
                     throw IOException("Only readable text pages are supported.")
                 }
-                val bytes = body.byteStream().use { it.readNBytes(maxBytes + 1) }
-                if (bytes.size > maxBytes) throw IOException("Page exceeded the safe size limit.")
+                val bytes = body.byteStream().use { readBounded(it, maxBytes) }
                 val charset = body.contentType()?.charset(StandardCharsets.UTF_8) ?: StandardCharsets.UTF_8
                 return TextResponse(String(bytes, charset), current, res.code)
             }
         }
         throw IOException("Too many redirects.")
+    }
+
+    private fun readBounded(input: InputStream, maxBytes: Int): ByteArray {
+        if (maxBytes <= 0) throw IOException("Invalid response size limit.")
+        val output = ByteArrayOutputStream(minOf(maxBytes, INITIAL_RESPONSE_BUFFER_BYTES))
+        val buffer = ByteArray(RESPONSE_READ_BUFFER_BYTES)
+        var total = 0
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            if (count == 0) continue
+            total += count
+            if (total > maxBytes) throw IOException("Page exceeded the safe size limit.")
+            output.write(buffer, 0, count)
+        }
+        return output.toByteArray()
     }
 
     private suspend fun awaitResponse(request: Request): Response = suspendCancellableCoroutine { continuation ->
@@ -464,7 +487,7 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
     private data class SearchHit(val title: String, val url: String, val snippet: String, val publishedAt: String? = null)
     private data class PageData(val output: ResearchOutput, val text: String, val links: List<SearchHit>)
     private data class CachedPage(val createdAt: Long, val page: PageData)
-    private data class RobotsRules(val disallowed: List<String>, val crawlDelayMs: Long, val cachedAt: Long = System.currentTimeMillis())
+    private data class RobotsRules(val policy: ResearchRobotsRules, val cachedAt: Long = System.currentTimeMillis())
     private data class TextResponse(val text: String, val url: HttpUrl, val code: Int)
 
     companion object {
@@ -479,6 +502,8 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
         private const val MAX_MEMORY_PAGES = 24
         private const val MIN_JS_TEXT_GAIN = 80
         private const val MIN_HOST_INTERVAL_MS = 700L
+        private const val INITIAL_RESPONSE_BUFFER_BYTES = 64 * 1024
+        private const val RESPONSE_READ_BUFFER_BYTES = 8 * 1024
     }
 }
 
