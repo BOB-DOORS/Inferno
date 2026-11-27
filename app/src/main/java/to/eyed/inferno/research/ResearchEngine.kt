@@ -212,7 +212,7 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
                     withContext(Dispatchers.Default) { parsePage(cachedHtml, cachedUrl) }
                 }.getOrNull()
                 if (cachedPage != null) {
-                    pageCache[key] = CachedPage(System.currentTimeMillis(), cachedPage)
+                    rememberPage(key, cachedPage)
                     return cachedPage
                 }
             }
@@ -233,9 +233,16 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
         }
 
         persistentCache.put(ResearchPersistentCache.KIND_PAGE, key, fetched.url.toString() + "\n" + pageHtml)
-        pageCache[key] = CachedPage(System.currentTimeMillis(), page)
-        if (pageCache.size > MAX_MEMORY_PAGES) pageCache.keys.firstOrNull()?.let(pageCache::remove)
+        rememberPage(key, page)
         return page
+    }
+
+    private fun rememberPage(key: String, page: PageData) {
+        pageCache[key] = CachedPage(System.currentTimeMillis(), page)
+        while (pageCache.size > MAX_MEMORY_PAGES) {
+            val oldestCandidate = pageCache.keys.firstOrNull { it != key } ?: break
+            pageCache.remove(oldestCandidate)
+        }
     }
 
     private fun robotsAllows(url: HttpUrl, rules: RobotsRules): Boolean {
