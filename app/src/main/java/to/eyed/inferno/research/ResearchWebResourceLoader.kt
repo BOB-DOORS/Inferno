@@ -4,6 +4,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import okhttp3.Call
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -81,7 +82,7 @@ internal class ResearchWebResourceLoader(private val client: OkHttpClient) {
                 if (result.code in REDIRECT_CODES) {
                     val location = result.header("Location")
                         ?: return blocked(result.code, "Redirect did not include a destination.")
-                    current = current.resolve(location)?.toString()?.let(ResearchUrlPolicy::safeUrl)
+                    current = current.resolve(location)?.toString()?.let { ResearchUrlPolicy.safeUrl(it) }
                         ?: return blocked(403, "Redirect target rejected by research network policy.")
                     if (request.isForMainFrame && !sameOrigin(current, initialPage)) {
                         return blocked(403, "Cross-origin top-level redirect is blocked.")
