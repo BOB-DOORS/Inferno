@@ -181,18 +181,32 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
     private suspend fun loadPage(rawUrl: String): PageData {
         val initial = safeUrl(rawUrl) ?: throw IOException("Only public HTTP(S) pages on standard web ports are supported.")
         val key = normalizeUrl(initial.toString())
-        val robots = robotsFor(initial)
-        val initialPath = initial.encodedPath + initial.encodedQuery?.let { "?$it" }.orEmpty()
-        if (!robots.policy.allows(initialPath)) {
+        val initialRobots = robotsFor(initial)
+        if (!robotsAllows(initial, initialRobots)) {
             throw IOException("The website's robots.txt disallows automated page access.")
         }
-        pageCache[key]?.takeIf { System.currentTimeMillis() - it.createdAt < PAGE_CACHE_MS }?.let { return it.page }
+
+        val memoryCached = pageCache[key]?.takeIf {
+            System.currentTimeMillis() - it.createdAt in 0..PAGE_CACHE_MS
+        }
+        if (memoryCached != null) {
+            val finalUrl = memoryCached.page.output.sources.firstOrNull()?.url?.let(::safeUrl) ?: initial
+            val finalRobots = if (sameOrigin(initial, finalUrl)) initialRobots else robotsFor(finalUrl)
+            if (!robotsAllows(finalUrl, finalRobots)) {
+                throw IOException("The redirected page is disallowed by its robots.txt policy.")
+            }
+            return memoryCached.page
+        }
 
         val saved = persistentCache.get(ResearchPersistentCache.KIND_PAGE, key, PAGE_CACHE_MS)
         if (saved != null) {
             val separator = saved.indexOf('\n')
             if (separator > 0) {
                 val cachedUrl = safeUrl(saved.substring(0, separator)) ?: initial
+                val cachedRobots = if (sameOrigin(initial, cachedUrl)) initialRobots else robotsFor(cachedUrl)
+                if (!robotsAllows(cachedUrl, cachedRobots)) {
+                    throw IOException("The cached redirect target is disallowed by its robots.txt policy.")
+                }
                 val cachedHtml = saved.substring(separator + 1)
                 val cachedPage = runCatching {
                     withContext(Dispatchers.Default) { parsePage(cachedHtml, cachedUrl) }
@@ -223,6 +237,14 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
         if (pageCache.size > MAX_MEMORY_PAGES) pageCache.keys.firstOrNull()?.let(pageCache::remove)
         return page
     }
+
+    private fun robotsAllows(url: HttpUrl, rules: RobotsRules): Boolean {
+        val pathAndQuery = url.encodedPath + url.encodedQuery?.let { "?$it" }.orEmpty()
+        return rules.policy.allows(pathAndQuery)
+    }
+
+    private fun sameOrigin(first: HttpUrl, second: HttpUrl): Boolean =
+        first.scheme == second.scheme && first.host == second.host && first.port == second.port
 
     private fun parsePage(html: String, url: HttpUrl): PageData {
         val doc = Jsoup.parse(html, url.toString())
