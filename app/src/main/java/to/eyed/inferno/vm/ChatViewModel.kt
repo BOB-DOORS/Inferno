@@ -44,7 +44,12 @@ import to.eyed.inferno.engine.PromptMessage
 import to.eyed.inferno.engine.modelOrNull
 import to.eyed.inferno.models.ImageDetail
 import to.eyed.inferno.models.ThinkingSpec
-import to.eyed.inferno.ui.S\nimport to.eyed.inferno.research.ResearchPrompt\nimport to.eyed.inferno.research.ResearchTokenParser\nimport to.eyed.inferno.research.ResearchTokenUpdate\nimport to.eyed.inferno.research.ResearchWorkspace\nimport to.eyed.inferno.research.ResearchToolCall
+import to.eyed.inferno.ui.S
+import to.eyed.inferno.research.ResearchPrompt
+import to.eyed.inferno.research.ResearchTokenParser
+import to.eyed.inferno.research.ResearchTokenUpdate
+import to.eyed.inferno.research.ResearchWorkspace
+import to.eyed.inferno.research.ResearchToolCall
 
 /**
  * Conversations + generation. One private [run] over the PERSISTED history; send / regenerate /
@@ -682,13 +687,16 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
         c.prefs.setCalibration(modelId, cal.copy(imageEncode = cal.imageEncode + (detail.name to ImageEncodeSample(per, 0))))
     }
 
-    private class ResearchHandoff : RuntimeException()\n\n    private companion object {
+    private class ResearchHandoff : RuntimeException()
+
+    private companion object {
         const val KEY_ACTIVE = "activeId"
         const val KEY_PENDING = "pendingIds"
         /** Key for the gen state of a not-yet-created chat (queued send before the first message). */
         const val NO_CHAT = ""
         const val MAX_ATTACHMENTS = 2
-        const val MAX_PROMPT_IMAGES = 8\n        const val MAX_RESEARCH_CALLS = 6
+        const val MAX_PROMPT_IMAGES = 8
+        const val MAX_RESEARCH_CALLS = 6
         const val PUBLISH_NS = 80_000_000L
         const val TPS_NS = 500_000_000L
         const val PERSIST_NS = 2_000_000_000L
