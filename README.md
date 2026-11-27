@@ -21,9 +21,9 @@ to public websites, but never sends chat history or model prompts to a cloud AI.
 * **Works in the background.** Answers and images keep generating when you switch apps.
 * **Optional agentic web research.** The local model decides when to search, open pages, extract product metadata,
   compare sources and collect relevant images. JavaScript-rendered app shells use a fresh, isolated AndroidX WebKit
-  profile only when static HTML is insufficient; the profile is deleted after capture. Public-page HTML and robots
-  rules are compressed into a bounded SQLite cache so cached pages survive app restarts. No API key or cloud model
-  is required.
+  profile only when static HTML is insufficient. Every page resource is fetched through the same DNS-validated,
+  robots-aware OkHttp client as native research; Chromium does not perform direct HTTP requests. Public-page HTML and
+  robots rules are compressed into a bounded SQLite cache. No API key or cloud model is required.
 
 ## Privacy
 
@@ -33,8 +33,11 @@ history, system prompts, attachments and generated model output are not uploaded
 processed locally. A private compressed SQLite cache stores public page HTML for up to 6 hours and robots.txt rules
 for up to 24 hours, with an 18 MB total size cap; old entries are evicted automatically. JavaScript pages run in a
 new WebKit profile isolated from the app's default WebView profile; that profile is deleted after capture (WebKit may
-complete physical data cleanup asynchronously). Third-party cookies are blocked. Devices without WebKit multi-profile
-support skip JavaScript rendering and use static extraction only. There is no telemetry, analytics, account or cloud
+complete physical data cleanup asynchronously). Cookies and authorization headers are never forwarded by the
+resource proxy. The WebView uses a restrictive content policy, blocks forms, frames, workers, WebRTC and beacon
+requests, and only supports GET resources; each resource and redirect is checked against public-address and
+robots.txt policies. Devices without WebKit multi-profile support skip JavaScript rendering and use static extraction
+only. There is no telemetry, analytics, account or cloud
 inference. Chats, images and models stay in private app storage and are excluded from Android backups and device transfers.
 
 ## Requirements
