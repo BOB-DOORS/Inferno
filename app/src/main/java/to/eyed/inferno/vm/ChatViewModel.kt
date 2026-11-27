@@ -44,7 +44,7 @@ import to.eyed.inferno.engine.PromptMessage
 import to.eyed.inferno.engine.modelOrNull
 import to.eyed.inferno.models.ImageDetail
 import to.eyed.inferno.models.ThinkingSpec
-import to.eyed.inferno.ui.S
+import to.eyed.inferno.ui.S\nimport to.eyed.inferno.research.ResearchPrompt\nimport to.eyed.inferno.research.ResearchTokenParser\nimport to.eyed.inferno.research.ResearchTokenUpdate\nimport to.eyed.inferno.research.ResearchWorkspace\nimport to.eyed.inferno.research.ResearchToolCall
 
 /**
  * Conversations + generation. One private [run] over the PERSISTED history; send / regenerate /
@@ -407,34 +407,72 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
             val expectedEncodeMs = if (promptImages.isEmpty()) 0L else expectedEncodeMs(settings.calibration[model.id]?.imageEncode?.get(detail.name), catalog?.encodeMsAt448, detail, promptImages)
             appVm.beginFirstTurn()
             setGen(conversationId, GenState.Prefill(0, 0, false, expectedEncodeMs))
-            // (4) stream
-            c.engine.generate(conversationId, messages, promptImages, params, thinking, settings.thinking, detail).collect { ev ->
-                when (ev) {
-                    is GenerationEvent.Resuming -> setGen(conversationId, GenState.Prefill(0, 0, false, expectedEncodeMs))
-                    is GenerationEvent.Prefill -> setGen(conversationId, GenState.Prefill(ev.done, ev.total, ev.encodingImage, expectedEncodeMs))
-                    is GenerationEvent.Thinking -> { stream.thinking(ev.text); stream.publish(false) }
-                    is GenerationEvent.Token -> {
-                        stream.token(ev.text)
-                        if (assistantId == null) assistantId = c.chats.appendAssistant(conversationId, stream.textStr, stream.reasoningOrNull(), null).id
-                        else if (stream.shouldPersist()) c.chats.updateAssistant(assistantId!!, stream.textStr, stream.reasoningOrNull(), null)
-                        stream.publish(false)
+            // (4) Model-directed research. There is no separate classifier call: the first generated tokens
+            // either become normal answer text immediately or begin the compact tool marker.
+            val workspace = ResearchWorkspace()
+            val researchEnabled = settings.webResearchEnabled
+            var activeMessages = messages
+            var researchCalls = 0
+            var completed = false
+            while (!completed) {
+                val parser = if (researchEnabled && researchCalls < MAX_RESEARCH_CALLS) ResearchTokenParser() else null
+                var handoff: ResearchToolCall? = null
+                try {
+                    c.engine.generate(conversationId, activeMessages, promptImages, params, thinking, settings.thinking, detail).collect { ev ->
+                        when (ev) {
+                            is GenerationEvent.Resuming -> setGen(conversationId, GenState.Prefill(0, 0, false, expectedEncodeMs))
+                            is GenerationEvent.Prefill -> setGen(conversationId, GenState.Prefill(ev.done, ev.total, ev.encodingImage, expectedEncodeMs))
+                            is GenerationEvent.Thinking -> { stream.thinking(ev.text); stream.publish(false) }
+                            is GenerationEvent.Token -> {
+                                when (val parsed = parser?.accept(ev.text)) {
+                                    is ResearchTokenUpdate.Tool -> {
+                                        handoff = parsed.call
+                                        throw ResearchHandoff()
+                                    }
+                                    is ResearchTokenUpdate.Visible -> if (parsed.text.isNotEmpty()) stream.token(parsed.text)
+                                    ResearchTokenUpdate.Buffered -> Unit
+                                    null -> stream.token(ev.text)
+                                }
+                                if (stream.textStr.isNotEmpty()) {
+                                    if (assistantId == null) assistantId = c.chats.appendAssistant(conversationId, stream.textStr, stream.reasoningOrNull(), null).id
+                                    else if (stream.shouldPersist()) c.chats.updateAssistant(assistantId!!, stream.textStr, stream.reasoningOrNull(), null)
+                                }
+                                stream.publish(false)
+                            }
+                            is GenerationEvent.Done -> {
+                                parser?.finish()?.takeIf { it.isNotEmpty() }?.let(stream::token)
+                                if (parser != null && workspace.toolCalls > 0) {
+                                    val appendix = workspace.citationAppendix()
+                                    if (appendix.isNotBlank()) stream.token(appendix)
+                                }
+                                val stats = toStats(ev.stats, ev.reason.name, model.id, loaded, params).copy(thinkingMs = stream.thinkingMs)
+                                if (assistantId == null) assistantId = c.chats.appendAssistant(conversationId, stream.textStr, stream.reasoningOrNull(), stats).id
+                                else c.chats.updateAssistant(assistantId, stream.textStr, stream.reasoningOrNull(), stats)
+                                _lastStats.value = ev.stats
+                                if (ev.stats.imageEncodeMs > 0 && promptImages.isNotEmpty()) persistEncodeSample(model.id, detail, ev.stats.imageEncodeMs, promptImages)
+                                appVm.markFirstTurnOk()
+                                completed = true
+                            }
+                            GenerationEvent.NeedsTruncation -> { stream.close(); setGen(conversationId, GenState.Error(S.messageExceedsContext)); completed = true }
+                            is GenerationEvent.Error -> {
+                                persistPartial(conversationId, assistantId, stream, errorStats(model.id))
+                                stream.close()
+                                setGen(conversationId, GenState.Error(ev.message))
+                                completed = true
+                            }
+                        }
                     }
-                    is GenerationEvent.Done -> {
-                        val stats = toStats(ev.stats, ev.reason.name, model.id, loaded, params).copy(thinkingMs = stream.thinkingMs)
-                        if (assistantId == null) assistantId = c.chats.appendAssistant(conversationId, stream.textStr, stream.reasoningOrNull(), stats).id
-                        else c.chats.updateAssistant(assistantId, stream.textStr, stream.reasoningOrNull(), stats)
-                        _lastStats.value = ev.stats
-                        if (ev.stats.imageEncodeMs > 0 && promptImages.isNotEmpty()) persistEncodeSample(model.id, detail, ev.stats.imageEncodeMs, promptImages)
-                        appVm.markFirstTurnOk()
-                        stream.close()
-                        setGen(conversationId, GenState.Idle)
-                    }
-                    GenerationEvent.NeedsTruncation -> { stream.close(); setGen(conversationId, GenState.Error(S.messageExceedsContext)) }
-                    is GenerationEvent.Error -> {
-                        persistPartial(conversationId, assistantId, stream, errorStats(model.id))
-                        stream.close()
-                        setGen(conversationId, GenState.Error(ev.message))
-                    }
+                } catch (_: ResearchHandoff) {
+                    val call = handoff ?: throw IllegalStateException("Research handoff missing tool call")
+                    workspace.recordCall()
+                    setGen(conversationId, GenState.Researching("Researching: ${call.name.replace('_', ' ')}"))
+                    val result = c.research.execute(call, workspace)
+                    workspace.add(result)
+                    researchCalls++
+                    val dynamicSystem = ResearchPrompt.compose(system, workspace, researchCalls < MAX_RESEARCH_CALLS)
+                    val content = messages.filterNot { it.role == "system" }
+                    activeMessages = listOf(PromptMessage("system", dynamicSystem)) + content
+                    setGen(conversationId, GenState.Prefill(0, 0, false, expectedEncodeMs))
                 }
             }
             stream.close()
@@ -642,13 +680,13 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
         c.prefs.setCalibration(modelId, cal.copy(imageEncode = cal.imageEncode + (detail.name to ImageEncodeSample(per, 0))))
     }
 
-    private companion object {
+    private class ResearchHandoff : RuntimeException()\n\n    private companion object {
         const val KEY_ACTIVE = "activeId"
         const val KEY_PENDING = "pendingIds"
         /** Key for the gen state of a not-yet-created chat (queued send before the first message). */
         const val NO_CHAT = ""
         const val MAX_ATTACHMENTS = 2
-        const val MAX_PROMPT_IMAGES = 8
+        const val MAX_PROMPT_IMAGES = 8\n        const val MAX_RESEARCH_CALLS = 6
         const val PUBLISH_NS = 80_000_000L
         const val TPS_NS = 500_000_000L
         const val PERSIST_NS = 2_000_000_000L
