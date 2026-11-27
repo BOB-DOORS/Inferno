@@ -188,7 +188,7 @@ internal object ResearchPrompt {
             - search_web: query; optional domains (comma-separated) and freshness (day/week/month/year).
             - search_news: query; optional freshness. Extracts article publication dates.
             - search_products: query; optional domains. Discovers product pages and extracts structured name, brand, price/currency, availability, specifications, ratings and page images.
-            - open_page: url; optional render_javascript (true/false). Extracts main text, author/date metadata, headings, tables, links, OpenGraph, JSON-LD, product metadata and relevant images. JavaScript app shells are detected automatically and rendered locally only when the static page has too little useful text.
+            - open_page: url. Extracts main text, author/date metadata, headings, tables, links, OpenGraph, JSON-LD, product metadata and relevant images. JavaScript app shells are detected automatically and rendered locally only when static HTML contains too little useful text.
             - extract_product: url. Focuses extraction on product and offer fields.
             - search_images: query. Use only when the visual itself matters or a suitable page image is unavailable.
             - find_in_page: url and term.
