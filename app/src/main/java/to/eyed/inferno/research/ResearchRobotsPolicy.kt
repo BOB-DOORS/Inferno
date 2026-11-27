@@ -81,11 +81,15 @@ internal object ResearchRobotsPolicy {
         }
         finishGroup()
 
-        val exactGroups = groups.filter { group ->
-            group.agents.any { it.equals(userAgent, ignoreCase = true) }
+        val matchingGroups = groups.mapNotNull { group ->
+            val specificity = group.agents
+                .filter { it != "*" && userAgent.startsWith(it, ignoreCase = true) }
+                .maxOfOrNull(String::length)
+            specificity?.let { group to it }
         }
-        val selected = if (exactGroups.isNotEmpty()) {
-            exactGroups
+        val strongestMatch = matchingGroups.maxOfOrNull { it.second }
+        val selected = if (strongestMatch != null) {
+            matchingGroups.filter { it.second == strongestMatch }.map { it.first }
         } else {
             groups.filter { group -> group.agents.any { it == "*" } }
         }
