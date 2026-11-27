@@ -164,7 +164,7 @@ internal class JavascriptPageRenderer(context: Context) {
                         if (!samplingStarted && ResearchUrlPolicy.safeUrl(url)?.host == requested.host) {
                             samplingStarted = true
                             pageStartedAt = SystemClock.elapsedRealtime()
-                            handler.postDelayed(poll, FIRST_SAMPLE_DELAY_MS)
+                            handler.postDelayed({ poll() }, FIRST_SAMPLE_DELAY_MS)
                         }
                     }
 
