@@ -37,7 +37,7 @@ import kotlin.coroutines.resumeWithException
  */
 internal class ResearchEngine(context: Context, private val client: OkHttpClient) {
     private val persistentCache = ResearchPersistentCache(context)
-    private val javascriptRenderer = JavascriptPageRenderer(context)
+    private val javascriptRenderer = JavascriptPageRenderer(context, client)
     private val pageCache = ConcurrentHashMap<String, CachedPage>()
     private val robotsCache = ConcurrentHashMap<String, RobotsRules>()
     private val hostRequests = ConcurrentHashMap<String, Long>()
@@ -222,7 +222,7 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
         var pageHtml = fetched.text
         var page = withContext(Dispatchers.Default) { parsePage(pageHtml, fetched.url) }
         if (ResearchPageHeuristics.shouldRenderJavascript(pageHtml, page.text)) {
-            val renderedHtml = javascriptRenderer.render(fetched.url.toString())
+            val renderedHtml = javascriptRenderer.render(fetched.url.toString(), pageHtml)
             if (!renderedHtml.isNullOrBlank()) {
                 val renderedPage = withContext(Dispatchers.Default) { parsePage(renderedHtml, fetched.url) }
                 if (renderedPage.text.length > page.text.length + MIN_JS_TEXT_GAIN || page.text.isBlank()) {
