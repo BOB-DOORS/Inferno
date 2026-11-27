@@ -330,9 +330,9 @@ internal class JavascriptPageRenderer(
 
         private const val CONTENT_SECURITY_POLICY =
             "default-src 'self'; " +
-                "script-src 'self' 'unsafe-inline' 'unsafe-eval' https: http:; " +
-                "style-src 'self' 'unsafe-inline' https: http:; " +
-                "font-src 'self' data: https: http:; " +
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; " +
+                "style-src 'self' 'unsafe-inline' https:; " +
+                "font-src 'self' data: https:; " +
                 "img-src 'none'; media-src 'none'; " +
                 "connect-src 'self'; frame-src 'none'; object-src 'none'; " +
                 "worker-src 'none'; form-action 'none'; base-uri 'self'"
