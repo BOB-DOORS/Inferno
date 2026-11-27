@@ -437,14 +437,10 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
             var firstPass = true
             var completed = false
             while (!completed) {
-                val parser = if (researchEnabled && firstPass) {
-                    val fallbackQuery = messages.lastOrNull { it.role == "user" }?.content.orEmpty()
-                    ResearchCommandParser(fallbackQuery)
-                } else {
-                    null
-                }
+                val parser = if (researchEnabled && firstPass) ResearchCommandParser() else null
                 var commandBatch: List<ResearchToolCall> = emptyList()
                 var runCommandBatch = false
+                var runTextFallback = false
 
                 c.engine.generate(
                     conversationId,
@@ -484,6 +480,8 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
                             commandBatch = parser?.calls.orEmpty().take(MAX_RESEARCH_CALLS)
                             if (commandBatch.isNotEmpty()) {
                                 runCommandBatch = true
+                            } else if (parser?.needsTextFallback == true && stream.textStr.isBlank()) {
+                                runTextFallback = true
                             } else {
                                 val appendix = workspace.citationAppendix()
                                 if (appendix.isNotBlank()) stream.token(appendix)
@@ -521,7 +519,16 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
                     }
                 }
 
-                if (runCommandBatch) {
+                if (runTextFallback) {
+                    // A malformed or obsolete marker is not a search request. Retry directly in answer mode.
+                    firstPass = false
+                    val finalSystem = ResearchPrompt.compose(system, workspace, false)
+                    val content = messages.filterNot { it.role == "system" }
+                    val refit = c.contextManager.fit(finalSystem, content, promptImages, nCtx, reserve, 0)
+                    activeMessages = refit.messages
+                    promptImages = refit.images
+                    setGen(conversationId, GenState.Prefill(0, 0, false, expectedEncodeMs))
+                } else if (runCommandBatch) {
                     firstPass = false
                     commandBatch.forEach { workspace.recordCall() }
                     setGen(
