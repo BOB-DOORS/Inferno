@@ -28,11 +28,17 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Set up JDK 17
+      - name: Set up JDK 17 for Kotlin compilation
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
+
+      - name: Set up JDK 25 for the Gradle daemon
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
@@ -43,6 +49,13 @@ jobs:
         run: |
           sdkmanager "platforms;android-37.0" "platforms;android-37.1" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;4.1.2"
           yes | sdkmanager --licenses
+
+      # CI supplies both required JDKs directly. Skip Foojay's settings plugin here so the build
+      # does not depend on resolving a toolchain-download plugin when JDK 25 is already installed.
+      - name: Configure installed JDK toolchains
+        run: |
+          sed -i '/org.gradle.toolchains.foojay-resolver-convention/d' settings.gradle.kts
+          echo "GRADLE_OPTS=-Dorg.gradle.java.installations.paths=$JAVA_HOME_17_X64,$JAVA_HOME_25_X64" >> "$GITHUB_ENV"
 
       - name: Configure Gradle
         uses: gradle/actions/setup-gradle@v4
