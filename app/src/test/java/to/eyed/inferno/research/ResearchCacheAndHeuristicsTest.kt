@@ -73,7 +73,7 @@ class ResearchCacheAndHeuristicsTest {
             "127.0.0.1",
             "169.254.1.1",
             "172.16.0.1",
-            "192.0.0.9",
+            "192.0.0.1",
             "192.0.2.1",
             "192.168.1.1",
             "198.19.0.1",
@@ -92,6 +92,7 @@ class ResearchCacheAndHeuristicsTest {
 
     @Test fun globallyRoutableAddressesRemainAllowed() {
         assertTrue(ResearchUrlPolicy.isPublicAddress(InetAddress.getByName("8.8.8.8")))
+        assertTrue(ResearchUrlPolicy.isPublicAddress(InetAddress.getByName("192.0.1.1")))
         assertTrue(ResearchUrlPolicy.isPublicAddress(InetAddress.getByName("2606:4700:4700::1111")))
     }
 
