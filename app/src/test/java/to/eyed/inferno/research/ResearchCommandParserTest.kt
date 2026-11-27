@@ -107,6 +107,24 @@ class ResearchCommandParserTest {
     }
 
     @Test
+    fun truncatedJsonLookingPayloadFallsBackInsteadOfSearchingGarbage() {
+        val parser = ResearchCommandParser()
+        val visible = parser.accept("""<search>{"tool":"search_web","arguments":{"query":""") + parser.finish()
+
+        assertEquals("", visible)
+        assertTrue(parser.calls.isEmpty())
+        assertTrue(parser.needsTextFallback)
+    }
+
+    @Test
+    fun plainTextInsideSearchTagIsAcceptedAsAQueryShorthand() {
+        val parser = ResearchCommandParser()
+        parser.accept("<search>current Qwen 3.5 model release</search>")
+
+        assertEquals("current Qwen 3.5 model release", parser.calls.single().string("query"))
+    }
+
+    @Test
     fun argumentFreeLegacyMarkerFallsBackToTextInsteadOfSearchingOrDisplaying() {
         val parser = ResearchCommandParser()
         assertEquals("", parser.accept("[INFERNO_TOOL:search_web]"))
