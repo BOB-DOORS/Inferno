@@ -179,6 +179,10 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
     private suspend fun loadPage(rawUrl: String): PageData {
         val initial = safeUrl(rawUrl) ?: throw IOException("Only public HTTP(S) pages on standard web ports are supported.")
         val key = normalizeUrl(initial.toString())
+        val robots = robotsFor(initial)
+        if (robots.disallowed.any { pathMatches(initial.encodedPath, it) }) {
+            throw IOException("The website's robots.txt disallows automated page access.")
+        }
         pageCache[key]?.takeIf { System.currentTimeMillis() - it.createdAt < PAGE_CACHE_MS }?.let { return it.page }
 
         val saved = persistentCache.get(ResearchPersistentCache.KIND_PAGE, key, PAGE_CACHE_MS)
@@ -197,10 +201,6 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
             }
         }
 
-        val robots = robotsFor(initial)
-        if (robots.disallowed.any { pathMatches(initial.encodedPath, it) }) {
-            throw IOException("The website's robots.txt disallows automated page access.")
-        }
         awaitHostSlot(initial.host, robots.crawlDelayMs)
 
         val fetched = fetchText(initial.toString(), false)
