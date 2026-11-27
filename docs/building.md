@@ -43,6 +43,9 @@ own copy of ggml) and 5 MB the language-model library.
   `git -C third_party/llama.cpp fetch --tags --depth=1` to get the real tag.
 * **Kotlin** is built into AGP 9; do not apply `org.jetbrains.kotlin.android`. Versions live in
   `gradle/libs.versions.toml`.
+* **Web research** uses the local `ResearchEngine`, OkHttp and Jsoup. It needs no API key. Public search queries
+  and requested page URLs are sent to public websites only when the user enables Web research; chat history and
+  prompts are never uploaded to a cloud model. See the README privacy section.
 * **Native code is always optimised** (`-O3`, `-march=armv8.2-a+dotprod+fp16`), even in debug builds; only the
   Kotlin side is debuggable.
 * **R8 keep rules** in `app/proguard-rules.pro` and `sdengine/consumer-rules.pro` preserve every JNI entry point
