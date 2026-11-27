@@ -13,6 +13,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -541,7 +543,10 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
                     // Run independent retrievals concurrently. Compare-sources runs last and sees all collected evidence.
                     val (comparisons, retrievals) = commandBatch.partition { it.name == "compare_sources" }
                     val outputs = coroutineScope {
-                        retrievals.map { call -> async { c.research.execute(call, workspace) } }.awaitAll()
+                        val networkSlots = Semaphore(MAX_PARALLEL_RESEARCH)
+                        retrievals.map { call ->
+                            async { networkSlots.withPermit { c.research.execute(call, workspace) } }
+                        }.awaitAll()
                     }
                     outputs.forEach(workspace::add)
                     comparisons.forEach { call -> workspace.add(c.research.execute(call, workspace)) }
@@ -767,6 +772,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
         const val MAX_ATTACHMENTS = 2
         const val MAX_PROMPT_IMAGES = 8
         const val MAX_RESEARCH_CALLS = 5
+        const val MAX_PARALLEL_RESEARCH = 3
         const val PUBLISH_NS = 80_000_000L
         const val TPS_NS = 500_000_000L
         const val PERSIST_NS = 2_000_000_000L
