@@ -23,6 +23,26 @@ class ResearchRobotsPolicyTest {
     }
 
     @Test
+    fun crawlerProductTokenUsesLongestPrefixMatch() {
+        val policy = ResearchRobotsPolicy.parse(
+            """
+                User-agent: *
+                Disallow: /
+
+                User-agent: Inferno
+                Disallow: /shared
+
+                User-agent: InfernoResearch
+                Allow: /shared
+                Disallow: /private
+            """.trimIndent(),
+        )
+
+        assertTrue(policy.allows("/shared"))
+        assertFalse(policy.allows("/private"))
+    }
+
+    @Test
     fun longestMatchSupportsWildcardEndAnchorAndAllowTieBreak() {
         val policy = ResearchRobotsPolicy.parse(
             """
