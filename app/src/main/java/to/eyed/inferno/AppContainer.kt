@@ -60,7 +60,7 @@ class AppContainer(app: Application) {
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .build()
-    val downloader = ModelDownloader(okHttp, modelFiles)\n    private val researchHttp = OkHttpClient.Builder()\n        .connectTimeout(8, TimeUnit.SECONDS)\n        .readTimeout(12, TimeUnit.SECONDS)\n        .callTimeout(20, TimeUnit.SECONDS)\n        .followRedirects(false)\n        .followSslRedirects(false)\n        .build()\n    val research = ResearchEngine(researchHttp)
+    val downloader = ModelDownloader(okHttp, modelFiles)\n    private val researchHttp = OkHttpClient.Builder()\n        .connectTimeout(8, TimeUnit.SECONDS)\n        .readTimeout(12, TimeUnit.SECONDS)\n        .callTimeout(20, TimeUnit.SECONDS)\n        .followRedirects(false)\n        .followSslRedirects(false)\n        .build()\n    internal val research = ResearchEngine(researchHttp)
 
     /** ModelRepository's view of the text engine (delete/deleteAll never pull the file from under a live model). */
     private val engineAccess = object : EngineAccess {
