@@ -61,10 +61,32 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Run JVM regression tests
-        run: ./gradlew --no-daemon :app:testDebugUnitTest --stacktrace
+        shell: bash
+        run: |
+          for attempt in 1 2; do
+            if ./gradlew --no-daemon --refresh-dependencies :app:testDebugUnitTest --stacktrace; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 1 ]; then
+              echo "Gradle dependency resolution failed; retrying once with refreshed metadata."
+              sleep 10
+            fi
+          done
+          exit 1
 
       - name: Assemble debug APK
-        run: ./gradlew --no-daemon :app:assembleDebug --stacktrace
+        shell: bash
+        run: |
+          for attempt in 1 2; do
+            if ./gradlew --no-daemon :app:assembleDebug --stacktrace; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 1 ]; then
+              echo "APK assembly failed; retrying once."
+              sleep 10
+            fi
+          done
+          exit 1
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
