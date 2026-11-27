@@ -159,6 +159,10 @@ fun ThinkingIndicator(gen: GenState, modifier: Modifier = Modifier, tokenWords: 
             }
         }
         GenState.Trimming -> QuietNotice(S.trimmingOlder, modifier)
+        is GenState.Researching -> Row(modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            LoadingIndicator(Modifier.size(20.dp), color = Ink.White)
+            Text(gen.label, style = Typography.bodyMedium, color = Ink.I300)
+        }
         GenState.Compacting -> CompactingIndicator(modifier)
         else -> Unit
     }
