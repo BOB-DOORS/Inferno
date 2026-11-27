@@ -41,6 +41,7 @@ import kotlin.coroutines.resumeWithException
 internal class ResearchEngine(context: Context, private val client: OkHttpClient) {
     private val persistentCache = ResearchPersistentCache(context)
     private val javascriptRenderer = JavascriptPageRenderer(context, client)
+    private val localIndex = LocalWebIndex(context)
     private val pageCache = ConcurrentHashMap<String, CachedPage>()
     private val robotsCache = ConcurrentHashMap<String, RobotsRules>()
     private val hostRequests = ConcurrentHashMap<String, Long>()
@@ -79,13 +80,26 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
             }
         val scoped = if (domains.isEmpty()) query else "$query " + domains.joinToString(" ") { "site:$it" }
         val queryWithDate = freshnessQuery(scoped, call.string("freshness"))
+        val localBeforeCrawl = localIndex.search(query, MAX_SEARCH_RESULTS).map { hit ->
+            SearchHit(hit.title, hit.url, hit.snippet)
+        }
         var hits = coroutineScope {
             val ddg = async { searchProvider { searchDuckDuckGo(queryWithDate) } }
             val bing = async { searchProvider { searchBing(queryWithDate) } }
-            dedupe(ddg.await() + bing.await())
+            dedupe(localBeforeCrawl + ddg.await() + bing.await())
         }
-        if (hits.size < MIN_SEARCH_RESULTS) hits = dedupe(hits + searchProvider { searchYahoo(queryWithDate) })
-        hits = rankAndDiversify(query, hits)
+        if (hits.size < MIN_SEARCH_RESULTS) {
+            hits = dedupe(hits + searchProvider { searchYahoo(queryWithDate) })
+        }
+
+        // Search results seed a persistent local crawl. A small batch is processed in this foreground
+        // request; the remaining frontier survives process death and is drained by later searches.
+        crawlDiscoveredPages(hits)
+        val localAfterCrawl = localIndex.search(query, MAX_SEARCH_RESULTS).map { hit ->
+            SearchHit(hit.title, hit.url, hit.snippet)
+        }
+        hits = rankAndDiversify(query, dedupe(hits + localAfterCrawl))
+
         val pages = coroutineScope {
             hits.take(MAX_AUTO_OPEN_RESULTS).map { hit -> async { openPageSafely(hit.url) } }
                 .awaitAll()
@@ -109,6 +123,94 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
             if (pageEvidence.isNotBlank()) append("\n\nOPENED TOP PAGES\n").append(pageEvidence)
         }
         return ResearchOutput("Web search: $query", evidence.take(15_000), sources.values.toList())
+    }
+
+    /**
+     * Adds search hits and public sitemap entries to the durable frontier, then indexes a bounded number of pages.
+     * Every actual page request goes through loadPage(), which enforces HTTPS, DNS/SSRF, robots.txt, redirects,
+     * per-host pacing, response-size limits and the same JS fallback as ordinary research.
+     */
+    private suspend fun crawlDiscoveredPages(hits: List<SearchHit>) {
+        hits.take(MAX_CRAWL_SEEDS).forEach { localIndex.enqueue(it.url, depth = 0, priority = 8) }
+
+        val seedHosts = hits.mapNotNull { hit -> safeUrl(hit.url) }
+            .distinctBy { it.host }
+            .take(MAX_SITEMAP_HOSTS)
+        for (seed in seedHosts) {
+            if (!localIndex.shouldProbeSitemap(seed.host)) continue
+            try {
+                val sitemapUrl = seed.newBuilder().encodedPath("/sitemap.xml").query(null).fragment(null).build()
+                val response = fetchText(sitemapUrl.toString(), robots = true, maxBytes = MAX_SITEMAP_BYTES)
+                if (response.code in 200..299 && response.text.isNotBlank()) {
+                    enqueueSitemapEntries(response.text, response.url)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                // Sitemaps are optional. A failed probe must never block normal indexed search.
+            } finally {
+                localIndex.markSitemapChecked(seed.host)
+            }
+        }
+
+        val candidates = localIndex.takeNext(MAX_CRAWL_PAGES_PER_QUERY)
+        for (candidate in candidates) {
+            if (localIndex.isIndexedFresh(candidate.url)) continue
+            try {
+                val page = loadPage(candidate.url)
+                val source = page.output.sources.firstOrNull()
+                val finalUrl = source?.url ?: candidate.url
+                localIndex.indexPage(
+                    finalUrl,
+                    source?.title ?: page.output.heading.removePrefix("Page: "),
+                    page.text,
+                )
+                if (candidate.depth < MAX_CRAWL_DEPTH) {
+                    page.links.asSequence()
+                        .filter { it.title.length >= MIN_CRAWL_LINK_TITLE }
+                        .take(MAX_LINKS_PER_CRAWLED_PAGE)
+                        .forEach { link -> localIndex.enqueue(link.url, candidate.depth + 1, priority = 3) }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                // Failed, disallowed, non-HTML and unsafe targets are dropped; they are never retried in a tight loop.
+            }
+        }
+    }
+
+    private suspend fun enqueueSitemapEntries(xml: String, sitemapUrl: HttpUrl) {
+        val document = Jsoup.parse(xml, sitemapUrl.toString(), Parser.xmlParser())
+        val pageLocations = document.select("urlset > url > loc")
+            .map { it.text().trim() }
+            .filter(String::isNotBlank)
+            .take(MAX_SITEMAP_PAGE_URLS)
+        pageLocations.forEach { localIndex.enqueue(it, depth = 0, priority = 6) }
+
+        // Sitemap indexes can point to child sitemap documents; follow only a tiny bounded number.
+        if (pageLocations.isEmpty()) {
+            val childSitemaps = document.select("sitemapindex > sitemap > loc")
+                .map { it.text().trim() }
+                .filter(String::isNotBlank)
+                .take(MAX_CHILD_SITEMAPS)
+            for (child in childSitemaps) {
+                try {
+                    val response = fetchText(child, robots = true, maxBytes = MAX_SITEMAP_BYTES)
+                    if (response.code in 200..299) {
+                        val childDocument = Jsoup.parse(response.text, response.url.toString(), Parser.xmlParser())
+                        childDocument.select("urlset > url > loc")
+                            .take(MAX_SITEMAP_PAGE_URLS / MAX_CHILD_SITEMAPS)
+                            .map { it.text().trim() }
+                            .filter(String::isNotBlank)
+                            .forEach { localIndex.enqueue(it, depth = 0, priority = 6) }
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    // A malformed child sitemap does not prevent indexing the remaining frontier.
+                }
+            }
+        }
     }
 
     private suspend fun searchProvider(block: suspend () -> List<SearchHit>): List<SearchHit> =
@@ -731,6 +833,15 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
     companion object {
         private const val USER_AGENT = "InfernoResearch/1.0 (Android; respectful public-page reader)"
         private const val MAX_SEARCH_RESULTS = 10
+        private const val MAX_CRAWL_SEEDS = 8
+        private const val MAX_SITEMAP_HOSTS = 2
+        private const val MAX_SITEMAP_BYTES = 512_000
+        private const val MAX_SITEMAP_PAGE_URLS = 24
+        private const val MAX_CHILD_SITEMAPS = 2
+        private const val MAX_CRAWL_PAGES_PER_QUERY = 3
+        private const val MAX_CRAWL_DEPTH = 1
+        private const val MAX_LINKS_PER_CRAWLED_PAGE = 8
+        private const val MIN_CRAWL_LINK_TITLE = 3
         private const val MIN_SEARCH_RESULTS = 5
         private const val MAX_AUTO_OPEN_RESULTS = 2
         private const val MAX_IMAGE_RESULTS = 6
