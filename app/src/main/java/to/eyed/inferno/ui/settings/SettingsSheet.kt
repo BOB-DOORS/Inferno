@@ -197,7 +197,9 @@ private fun SettingsBody(appVm: AppViewModel, chatVm: ChatViewModel, onOpenBench
         CardDivider()
         ToggleRow(S.streamingAnimations, s.streamingAnimations, appVm::setStreamingAnimations, description = S.streamingAnimationsDesc)
         CardDivider()
-        ToggleRow(S.haptics, s.haptics, appVm::setHaptics, description = S.hapticsDesc)\n        CardDivider()\n        ToggleRow("Web research", s.webResearchEnabled, appVm::setWebResearchEnabled, description = "Optional public-web searches. Your query and opened page URLs are sent to public websites; chat history and model output are not sent to a cloud AI. Disabled by default.")
+        ToggleRow(S.haptics, s.haptics, appVm::setHaptics, description = S.hapticsDesc)
+        CardDivider()
+        ToggleRow("Web research", s.webResearchEnabled, appVm::setWebResearchEnabled, description = "Optional public-web searches. Your query and opened page URLs are sent to public websites; chat history and model output are not sent to a cloud AI. Disabled by default.")
     }
 
     // ---- Storage (everyone) -------------------------------------------------------------------------------------
