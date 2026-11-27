@@ -10,6 +10,9 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -46,8 +49,7 @@ import to.eyed.inferno.models.ImageDetail
 import to.eyed.inferno.models.ThinkingSpec
 import to.eyed.inferno.ui.S
 import to.eyed.inferno.research.ResearchPrompt
-import to.eyed.inferno.research.ResearchTokenParser
-import to.eyed.inferno.research.ResearchTokenUpdate
+import to.eyed.inferno.research.ResearchCommandParser
 import to.eyed.inferno.research.ResearchWorkspace
 import to.eyed.inferno.research.ResearchToolCall
 
@@ -412,77 +414,134 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
             val expectedEncodeMs = if (promptImages.isEmpty()) 0L else expectedEncodeMs(settings.calibration[model.id]?.imageEncode?.get(detail.name), catalog?.encodeMsAt448, detail, promptImages)
             appVm.beginFirstTurn()
             setGen(conversationId, GenState.Prefill(0, 0, false, expectedEncodeMs))
-            // (4) Model-directed research. There is no separate classifier call: the first generated tokens
-            // either become normal answer text immediately or begin the compact tool marker.
+            // (4) One command-selection pass. Ordinary text is streamed immediately; only a leading
+            // <search> (or a legacy marker) is buffered. A batch of commands is executed together, then
+            // one final generation produces the user-facing answer. Greetings never pay an extra model pass.
             val workspace = ResearchWorkspace()
             val researchEnabled = settings.webResearchEnabled
             var activeMessages = messages
             if (researchEnabled) {
                 val firstResearchSystem = ResearchPrompt.compose(system, workspace, true)
-                val firstResearchFit = c.contextManager.fit(firstResearchSystem, messages.filterNot { it.role == "system" }, promptImages, nCtx, reserve, 0)
+                val firstResearchFit = c.contextManager.fit(
+                    firstResearchSystem,
+                    messages.filterNot { it.role == "system" },
+                    promptImages,
+                    nCtx,
+                    reserve,
+                    0,
+                )
                 activeMessages = firstResearchFit.messages
                 promptImages = firstResearchFit.images
             }
-            var researchCalls = 0
+
+            var firstPass = true
             var completed = false
             while (!completed) {
-                val parser = if (researchEnabled && researchCalls < MAX_RESEARCH_CALLS) ResearchTokenParser() else null
-                var handoff: ResearchToolCall? = null
-                try {
-                    c.engine.generate(conversationId, activeMessages, promptImages, params, thinking, settings.thinking, detail).collect { ev ->
-                        when (ev) {
-                            is GenerationEvent.Resuming -> setGen(conversationId, GenState.Prefill(0, 0, false, expectedEncodeMs))
-                            is GenerationEvent.Prefill -> setGen(conversationId, GenState.Prefill(ev.done, ev.total, ev.encodingImage, expectedEncodeMs))
-                            is GenerationEvent.Thinking -> { stream.thinking(ev.text); stream.publish(false) }
-                            is GenerationEvent.Token -> {
-                                when (val parsed = parser?.accept(ev.text)) {
-                                    is ResearchTokenUpdate.Tool -> {
-                                        handoff = parsed.call
-                                        throw ResearchHandoff()
-                                    }
-                                    is ResearchTokenUpdate.Visible -> if (parsed.text.isNotEmpty()) stream.token(parsed.text)
-                                    ResearchTokenUpdate.Buffered -> Unit
-                                    null -> stream.token(ev.text)
+                val parser = if (researchEnabled && firstPass) {
+                    val fallbackQuery = messages.lastOrNull { it.role == "user" }?.content.orEmpty()
+                    ResearchCommandParser(fallbackQuery)
+                } else {
+                    null
+                }
+                var commandBatch: List<ResearchToolCall> = emptyList()
+                var runCommandBatch = false
+
+                c.engine.generate(
+                    conversationId,
+                    activeMessages,
+                    promptImages,
+                    params,
+                    thinking,
+                    settings.thinking,
+                    detail,
+                ).collect { ev ->
+                    when (ev) {
+                        is GenerationEvent.Resuming -> setGen(conversationId, GenState.Prefill(0, 0, false, expectedEncodeMs))
+                        is GenerationEvent.Prefill -> setGen(conversationId, GenState.Prefill(ev.done, ev.total, ev.encodingImage, expectedEncodeMs))
+                        is GenerationEvent.Thinking -> {
+                            stream.thinking(ev.text)
+                            stream.publish(false)
+                        }
+                        is GenerationEvent.Token -> {
+                            val visible = parser?.accept(ev.text) ?: ev.text
+                            if (visible.isNotEmpty()) stream.token(visible)
+                            if (stream.textStr.isNotEmpty()) {
+                                if (assistantId == null) {
+                                    assistantId = c.chats.appendAssistant(
+                                        conversationId,
+                                        stream.textStr,
+                                        stream.reasoningOrNull(),
+                                        null,
+                                    ).id
+                                } else if (stream.shouldPersist()) {
+                                    c.chats.updateAssistant(assistantId!!, stream.textStr, stream.reasoningOrNull(), null)
                                 }
-                                if (stream.textStr.isNotEmpty()) {
-                                    if (assistantId == null) assistantId = c.chats.appendAssistant(conversationId, stream.textStr, stream.reasoningOrNull(), null).id
-                                    else if (stream.shouldPersist()) c.chats.updateAssistant(assistantId!!, stream.textStr, stream.reasoningOrNull(), null)
-                                }
-                                stream.publish(false)
                             }
-                            is GenerationEvent.Done -> {
-                                parser?.finish()?.takeIf { it.isNotEmpty() }?.let(stream::token)
-                                if (parser != null && workspace.toolCalls > 0) {
-                                    val appendix = workspace.citationAppendix()
-                                    if (appendix.isNotBlank()) stream.token(appendix)
+                            stream.publish(false)
+                        }
+                        is GenerationEvent.Done -> {
+                            parser?.finish()?.takeIf { it.isNotEmpty() }?.let(stream::token)
+                            commandBatch = parser?.calls.orEmpty().take(MAX_RESEARCH_CALLS)
+                            if (commandBatch.isNotEmpty()) {
+                                runCommandBatch = true
+                            } else {
+                                val appendix = workspace.citationAppendix()
+                                if (appendix.isNotBlank()) stream.token(appendix)
+                                val stats = toStats(ev.stats, ev.reason.name, model.id, loaded, params)
+                                    .copy(thinkingMs = stream.thinkingMs)
+                                if (assistantId == null) {
+                                    assistantId = c.chats.appendAssistant(
+                                        conversationId,
+                                        stream.textStr,
+                                        stream.reasoningOrNull(),
+                                        stats,
+                                    ).id
+                                } else {
+                                    c.chats.updateAssistant(assistantId, stream.textStr, stream.reasoningOrNull(), stats)
                                 }
-                                val stats = toStats(ev.stats, ev.reason.name, model.id, loaded, params).copy(thinkingMs = stream.thinkingMs)
-                                if (assistantId == null) assistantId = c.chats.appendAssistant(conversationId, stream.textStr, stream.reasoningOrNull(), stats).id
-                                else c.chats.updateAssistant(assistantId, stream.textStr, stream.reasoningOrNull(), stats)
                                 _lastStats.value = ev.stats
-                                if (ev.stats.imageEncodeMs > 0 && promptImages.isNotEmpty()) persistEncodeSample(model.id, detail, ev.stats.imageEncodeMs, promptImages)
+                                if (ev.stats.imageEncodeMs > 0 && promptImages.isNotEmpty()) {
+                                    persistEncodeSample(model.id, detail, ev.stats.imageEncodeMs, promptImages)
+                                }
                                 appVm.markFirstTurnOk()
                                 completed = true
                             }
-                            GenerationEvent.NeedsTruncation -> { stream.close(); setGen(conversationId, GenState.Error(S.messageExceedsContext)); completed = true }
-                            is GenerationEvent.Error -> {
-                                persistPartial(conversationId, assistantId, stream, errorStats(model.id))
-                                stream.close()
-                                setGen(conversationId, GenState.Error(ev.message))
-                                completed = true
-                            }
+                        }
+                        GenerationEvent.NeedsTruncation -> {
+                            stream.close()
+                            setGen(conversationId, GenState.Error(S.messageExceedsContext))
+                            completed = true
+                        }
+                        is GenerationEvent.Error -> {
+                            persistPartial(conversationId, assistantId, stream, errorStats(model.id))
+                            stream.close()
+                            setGen(conversationId, GenState.Error(ev.message))
+                            completed = true
                         }
                     }
-                } catch (_: ResearchHandoff) {
-                    val call = handoff ?: throw IllegalStateException("Research handoff missing tool call")
-                    workspace.recordCall()
-                    setGen(conversationId, GenState.Researching("Researching: ${call.name.replace('_', ' ')}"))
-                    val result = c.research.execute(call, workspace)
-                    workspace.add(result)
-                    researchCalls++
-                    val dynamicSystem = ResearchPrompt.compose(system, workspace, researchCalls < MAX_RESEARCH_CALLS)
+                }
+
+                if (runCommandBatch) {
+                    firstPass = false
+                    commandBatch.forEach { workspace.recordCall() }
+                    setGen(
+                        conversationId,
+                        GenState.Researching(
+                            if (commandBatch.size == 1) "Researching" else "Researching ${commandBatch.size} queries",
+                        ),
+                    )
+
+                    // Run independent retrievals concurrently. Compare-sources runs last and sees all collected evidence.
+                    val (comparisons, retrievals) = commandBatch.partition { it.name == "compare_sources" }
+                    val outputs = coroutineScope {
+                        retrievals.map { call -> async { c.research.execute(call, workspace) } }.awaitAll()
+                    }
+                    outputs.forEach(workspace::add)
+                    comparisons.forEach { call -> workspace.add(c.research.execute(call, workspace)) }
+
+                    val finalSystem = ResearchPrompt.compose(system, workspace, false)
                     val content = messages.filterNot { it.role == "system" }
-                    val refit = c.contextManager.fit(dynamicSystem, content, promptImages, nCtx, reserve, 0)
+                    val refit = c.contextManager.fit(finalSystem, content, promptImages, nCtx, reserve, 0)
                     activeMessages = refit.messages
                     promptImages = refit.images
                     setGen(conversationId, GenState.Prefill(0, 0, false, expectedEncodeMs))
@@ -693,8 +752,6 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
         c.prefs.setCalibration(modelId, cal.copy(imageEncode = cal.imageEncode + (detail.name to ImageEncodeSample(per, 0))))
     }
 
-    private class ResearchHandoff : RuntimeException()
-
     private companion object {
         const val KEY_ACTIVE = "activeId"
         const val KEY_PENDING = "pendingIds"
@@ -702,7 +759,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
         const val NO_CHAT = ""
         const val MAX_ATTACHMENTS = 2
         const val MAX_PROMPT_IMAGES = 8
-        const val MAX_RESEARCH_CALLS = 6
+        const val MAX_RESEARCH_CALLS = 5
         const val PUBLISH_NS = 80_000_000L
         const val TPS_NS = 500_000_000L
         const val PERSIST_NS = 2_000_000_000L
