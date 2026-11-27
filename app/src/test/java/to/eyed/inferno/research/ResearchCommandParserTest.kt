@@ -57,6 +57,17 @@ class ResearchCommandParserTest {
     }
 
     @Test
+    fun oneSearchBlockCanCarryMultipleIndependentQueries() {
+        val parser = ResearchCommandParser()
+        parser.accept(
+            """<search>{"tool":"search_web","queries":["first query","second query","third query"]}</search>""",
+        )
+
+        assertEquals(3, parser.calls.size)
+        assertEquals(listOf("first query", "second query", "third query"), parser.calls.map { it.string("query") })
+    }
+
+    @Test
     fun completeJsonIsAcceptedWhenSmallModelOmitsClosingSearchTag() {
         val parser = ResearchCommandParser()
         parser.accept("""<search>{"tool":"search_web","arguments":{"query":"missing close tag"}}""")
@@ -95,12 +106,12 @@ class ResearchCommandParserTest {
     }
 
     @Test
-    fun malformedTagIsRestoredInsteadOfSilentlyDropped() {
+    fun emptySearchArgumentsAreCapturedWithoutLeakingTheTag() {
         val parser = ResearchCommandParser()
         val malformed = """<search>{"tool":"search_web","arguments":{}}</search>"""
         val visible = parser.accept(malformed) + parser.finish()
 
-        // Empty arguments are valid structurally, but the default search tool has no usable query.
+        // The engine rejects a missing query; command syntax itself is never shown in chat.
         assertEquals(1, parser.calls.size)
         assertEquals("", visible)
     }
