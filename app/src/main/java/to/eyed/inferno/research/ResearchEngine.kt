@@ -179,7 +179,7 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
     private suspend fun openPage(rawUrl: String): ResearchOutput = loadPage(rawUrl).output
 
     private suspend fun loadPage(rawUrl: String): PageData {
-        val initial = safeUrl(rawUrl) ?: throw IOException("Only public HTTP(S) pages on standard web ports are supported.")
+        val initial = safeUrl(rawUrl) ?: throw IOException("Only public HTTPS pages on port 443 are supported.")
         val key = normalizeUrl(initial.toString())
         val initialRobots = robotsFor(initial)
         if (!robotsAllows(initial, initialRobots)) {
