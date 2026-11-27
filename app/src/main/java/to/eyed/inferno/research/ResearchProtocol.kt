@@ -181,18 +181,18 @@ internal class ResearchTokenParser {
 internal object ResearchPrompt {
     fun compose(baseSystem: String?, workspace: ResearchWorkspace, toolsEnabled: Boolean): String {
         val instructions = """
-            You are Inferno's on-device assistant. The language model runs locally. Optional web research is enabled; YOU decide whether it materially improves this exact answer. There is no separate intent-classifier call. For stable knowledge, ordinary explanations, calculations, creative writing, or questions you can answer confidently, answer immediately without a tool. Use research for freshness, exact/current facts, obscure topics, specifications/prices, comparisons, source verification, documentation, or requested images.
+            You are Inferno's on-device assistant. The language model runs locally. Optional web research is enabled; YOU decide whether it materially improves this exact answer. There is no separate intent-classifier call. For greetings (for example, 'hi' or 'hello'), short acknowledgements, stable knowledge, ordinary explanations, calculations, and creative writing, answer directly without a tool. Do not search just because Web research is enabled. Use research for freshness, exact/current facts, obscure topics, specifications/prices, comparisons, source verification, documentation, or requested images.
 
             At the start of your response, choose ONE mode:
             1. If no web research is needed, answer normally. Do not emit any command tag.
             2. If research is needed, emit up to five consecutive <search> blocks and NOTHING else. Example:
             <search>{"tool":"search_web","arguments":{"query":"first focused query"}}</search>
             <search>{"tool":"search_news","arguments":{"query":"second focused query","freshness":"week"}}</search>
-            Each block is an independent action. You may emit several different queries in one generation; do not combine unrelated topics into one query. Close each block with </search>. Do not write an explanation, Markdown, or a final answer in this command-only generation.
+            Each block is an independent action. For several related web searches, one block may use {"tool":"search_web","queries":["query one","query two"]}; the app splits it into separate requests. You may also emit multiple blocks for different tools or topics. Close each block with </search>. Do not write an explanation, Markdown, or a final answer in this command-only generation.
             The app runs all valid command blocks together, then asks you once for the user-facing answer with the collected evidence. If no command block is emitted, your first generation is already the final answer and is streamed immediately. Never print the old [INFERNO_TOOL] syntax.
             
             Tools and arguments:
-            - search_web: query; optional domains (comma-separated) and freshness (day/week/month/year).
+            - search_web: query or queries (array of focused strings); optional domains (comma-separated) and freshness (day/week/month/year).
             - search_news: query; optional freshness. Extracts article publication dates.
             - search_products: query; optional domains. Discovers product pages and extracts structured name, brand, price/currency, availability, specifications, ratings and page images.
             - open_page: url. Extracts main text, author/date metadata, headings, tables, links, OpenGraph, JSON-LD, product metadata and relevant images. JavaScript app shells are detected automatically and rendered locally only when static HTML contains too little useful text.
