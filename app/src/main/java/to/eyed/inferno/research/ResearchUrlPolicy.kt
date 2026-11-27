@@ -26,7 +26,7 @@ internal object ResearchUrlPolicy {
 
     fun safeUrl(raw: String): HttpUrl? {
         val url = raw.trim().toHttpUrlOrNull() ?: return null
-        if (!((url.scheme == "https" && url.port == 443) || (url.scheme == "http" && url.port == 80))) return null
+        if (url.scheme != "https" || url.port != 443) return null
         if (url.username.isNotEmpty() || url.password.isNotEmpty()) return null
 
         val host = url.host.lowercase(Locale.ROOT).trimEnd('.')
