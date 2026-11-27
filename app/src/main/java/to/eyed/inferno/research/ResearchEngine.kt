@@ -22,7 +22,9 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.parser.Parser
+import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.Locale
@@ -180,7 +182,8 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
         val initial = safeUrl(rawUrl) ?: throw IOException("Only public HTTP(S) pages on standard web ports are supported.")
         val key = normalizeUrl(initial.toString())
         val robots = robotsFor(initial)
-        if (robots.disallowed.any { pathMatches(initial.encodedPath, it) }) {
+        val initialPath = initial.encodedPath + initial.encodedQuery?.let { "?$it" }.orEmpty()
+        if (!robots.policy.allows(initialPath)) {
             throw IOException("The website's robots.txt disallows automated page access.")
         }
         pageCache[key]?.takeIf { System.currentTimeMillis() - it.createdAt < PAGE_CACHE_MS }?.let { return it.page }
@@ -201,9 +204,7 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
             }
         }
 
-        awaitHostSlot(initial.host, robots.crawlDelayMs)
-
-        val fetched = fetchText(initial.toString(), false)
+        val fetched = fetchText(initial.toString(), true)
         var pageHtml = fetched.text
         var page = withContext(Dispatchers.Default) { parsePage(pageHtml, fetched.url) }
         if (ResearchPageHeuristics.shouldRenderJavascript(pageHtml, page.text)) {
