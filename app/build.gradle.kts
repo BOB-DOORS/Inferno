@@ -122,7 +122,11 @@ android {
         buildConfig = true
     }
     packaging {
-        jniLibs { useLegacyPackaging = false }      // uncompressed + 16 KB aligned in the APK
+        jniLibs {
+            useLegacyPackaging = false              // uncompressed + 16 KB aligned in the APK
+            // Enriched Markdown and RaTeX share the native C++ runtime and fbjni libraries.
+            pickFirsts += listOf("**/libc++_shared.so", "**/libfbjni.so")
+        }
         resources.excludes += setOf("META-INF/{AL2.0,LGPL2.1}", "META-INF/versions/9/OSGI-INF/MANIFEST.MF")
     }
     room { schemaDirectory("$projectDir/schemas") }
@@ -171,7 +175,10 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
-    implementation(libs.markdown.renderer.m3)
+    implementation(libs.androidx.webkit)
+    implementation(libs.jsoup)
+    implementation(libs.enriched.markdown.compose)
+    implementation(libs.enriched.markdown.math)
     implementation(libs.coil.compose)
     implementation(libs.icons.lucide)
     testImplementation(libs.junit)

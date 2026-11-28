@@ -32,7 +32,6 @@ import to.eyed.inferno.data.SettingsState
 import to.eyed.inferno.data.ExperienceLevel
 import to.eyed.inferno.data.devBenchmark
 import to.eyed.inferno.data.powerUser
-import to.eyed.inferno.engine.Calibration
 import to.eyed.inferno.engine.InferenceEngine
 import to.eyed.inferno.engine.ContextManager
 import to.eyed.inferno.engine.CpuTopology
@@ -116,7 +115,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
     // Declared before init: firstRunAutoLoad() runs synchronously on Main.immediate when prefs and the disk scan have
     // already landed (Application created the container long before this ViewModel), and its selectAndLoad() writes here.
     private val _loadInProgress = MutableStateFlow(false)
-    /** True from selectAndLoad() until its plan/load/calibration finished or failed (the engine is still Idle while planning). */
+    /** True from selectAndLoad() until its plan/load finished or failed (the engine is still Idle while planning). */
     val loadInProgress: StateFlow<Boolean> = _loadInProgress.asStateFlow()
     /** Set after a successful load until ChatViewModel starts the first turn (crash-loop guard, 5.5). */
     @Volatile private var firstTurnPending = false
@@ -230,7 +229,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
 
     // ---- model lifecycle -------------------------------------------------------------------------------------
 
-    /** Plan + load (+ calibration bench on the very first load of a model). Sets selectedModelId and the crash guard. */
+    /** Plan + load without a startup benchmark. Sets selectedModelId and the crash guard. */
     fun selectAndLoad(modelId: String) {
         val local = c.models.local(modelId) ?: run { notice(S.notDownloaded(c.models.displayName(modelId))); return }
         // Join the previous load before arming the new guard, so its cancellation clear cannot land after our set.
@@ -287,8 +286,9 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
             loadedUseMmap = s.useMmap
             loadedGpuPref = s.gpu
             c.engine.setSampling(effectiveParams())
-            val cal = s.calibration[local.id]
-            if (cal == null) calibrate(local.id, loaded.loadMs) else c.engine.setCalibration(cal.copy(loadMs = loaded.loadMs))
+            // Never gate first model readiness on a native benchmark. Use saved measurements when available;
+            // catalog estimates remain the fallback until the user explicitly runs Bench.
+            s.calibration[local.id]?.let { c.engine.setCalibration(it.copy(loadMs = loaded.loadMs)) }
             c.prefs.setLoadAttempt(null)
             firstTurnPending = true
             when {
@@ -303,14 +303,6 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
             c.prefs.setLoadAttempt(null)
             notice(e.message ?: S.couldNotLoadModel)
         }
-    }
-
-    /** pp512/tg128 x1 on the first load of a model; the result drives the ADPF target and the meta-line estimate. */
-    private suspend fun calibrate(modelId: String, loadMs: Long) {
-        val r = c.engine.bench(nPrompt = 512, nGen = 128, reps = 1) { _, _ -> }
-        val cal = Calibration(ppTps = r.ppTps, tgTps = r.tgTps, loadMs = loadMs, at = System.currentTimeMillis())
-        c.prefs.setCalibration(modelId, cal)
-        c.engine.setCalibration(cal)
     }
 
     /** Re-plan and recreate the context for the loaded model (kv / ctx / fa / mmap changes). */
@@ -432,6 +424,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
     fun setContextPolicy(p: ContextPolicy) = viewModelScope.launch { c.prefs.setContextPolicy(p) }
     fun setStreamingAnimations(v: Boolean) = viewModelScope.launch { c.prefs.setStreamingAnimations(v) }
     fun setHaptics(v: Boolean) = viewModelScope.launch { c.prefs.setHaptics(v) }
+    fun setWebResearchEnabled(v: Boolean) = viewModelScope.launch { c.prefs.setWebResearchEnabled(v) }
     fun setAllowMeteredDownloads(v: Boolean) = viewModelScope.launch { c.prefs.setAllowMeteredDownloads(v) }
     fun setMinLogPriority(p: Int) = viewModelScope.launch { c.prefs.setMinLogPriority(p) }
     fun setExperienceLevel(l: ExperienceLevel) = viewModelScope.launch { c.prefs.setExperienceLevel(l) }

@@ -1,201 +1,183 @@
 package to.eyed.inferno.ui.chat
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.composables.icons.lucide.Check
-import com.composables.icons.lucide.Copy
-import com.composables.icons.lucide.Lucide
-import com.mikepenz.markdown.compose.components.markdownComponents
-import com.mikepenz.markdown.compose.elements.MarkdownCodeBlock
-import com.mikepenz.markdown.compose.elements.MarkdownCodeFence
-import com.mikepenz.markdown.compose.elements.MarkdownTable
-import com.mikepenz.markdown.compose.elements.MarkdownTableHeader
-import com.mikepenz.markdown.compose.elements.MarkdownTableRow
-import com.mikepenz.markdown.m3.Markdown
-import com.mikepenz.markdown.m3.markdownColor
-import com.mikepenz.markdown.m3.markdownTypography
-import com.mikepenz.markdown.model.markdownDimens
-import com.mikepenz.markdown.model.rememberMarkdownState
-import kotlinx.coroutines.delay
-import to.eyed.inferno.ui.S
-import to.eyed.inferno.ui.components.Hairline
-import to.eyed.inferno.ui.components.copyToClipboard
+import com.swmansion.enriched.markdown.compose.CodeBlockLayout
+import com.swmansion.enriched.markdown.compose.EnrichedMarkdownText
+import com.swmansion.enriched.markdown.compose.MarkdownOptions
+import com.swmansion.enriched.markdown.compose.markdownStyle
+import com.swmansion.enriched.markdown.math.LatexMathPlugin
+import com.swmansion.enriched.markdown.math.compose.inlineMath
+import com.swmansion.enriched.markdown.math.compose.math
 import to.eyed.inferno.ui.theme.Ink
-import to.eyed.inferno.ui.theme.MonoBody
 import to.eyed.inferno.ui.theme.Radii
-import to.eyed.inferno.ui.theme.RowMeta
 import to.eyed.inferno.ui.theme.Typography
-import to.eyed.inferno.ui.theme.rememberHaptics
 import to.eyed.inferno.ui.theme.whiteA
 
 /**
- * Assistant markdown in the monochrome language: white headings, I100 body, mono code on I900 cards,
- * white underlined links (never blue). Streaming strategy: the source is split into stable block-level
- * chunks so only the growing last chunk re-parses while tokens arrive; `key(index)` keeps every earlier
- * chunk's parse alive. `TextDirection.Content` keeps RTL answers readable inside the LTR chrome.
+ * Native Markdown renderer with RaTeX-backed LaTeX. Stable chunks remain composed while the streaming tail
+ * changes, avoiding whole-answer reparses. Scrollable code blocks provide their own copy controls.
  */
 @Composable
 fun MarkdownBody(text: String, modifier: Modifier = Modifier) {
     val chunks = remember(text) { MarkdownChunker.chunks(text) }
-    SelectionContainer {
-        Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            chunks.forEachIndexed { index, chunk -> key(index) { MarkdownChunkView(chunk) } }
-        }
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        chunks.forEachIndexed { index, chunk -> key(index) { MarkdownChunkView(chunk) } }
     }
 }
 
 @Composable
 private fun MarkdownChunkView(chunk: String) {
-    val body = Typography.bodyLarge.copy(color = Ink.I100, textDirection = TextDirection.Content)
-    // immediate parses the first composition synchronously (no blank frame) and retainState keeps the
-    // previous tree on screen during the async re-parse; without both, each publish flashes the
-    // library's placeholder, which reads as violent flicker at streaming rate.
-    val state = rememberMarkdownState(content = chunk, retainState = true, immediate = true)
-    Markdown(
-        markdownState = state,
-        colors = markdownColor(
-            text = Ink.I100,
-            codeBackground = Ink.I900,
-            inlineCodeBackground = whiteA(0.10f),
-            dividerColor = whiteA(0.10f),
-            tableBackground = whiteA(0.03f),
-        ),
-        typography = markdownTypography(
-            h1 = body.copy(fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold, color = Ink.White, letterSpacing = (-0.2).sp),
-            h2 = body.copy(fontSize = 19.sp, lineHeight = 25.sp, fontWeight = FontWeight.SemiBold, color = Ink.White),
-            h3 = body.copy(fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold, color = Ink.White),
-            h4 = body.copy(fontSize = 15.sp, lineHeight = 21.sp, fontWeight = FontWeight.SemiBold, color = Ink.I100),
-            h5 = body.copy(fontWeight = FontWeight.SemiBold, color = Ink.White),
-            h6 = body.copy(fontWeight = FontWeight.Medium, color = Ink.I300),
-            text = body,
-            code = MonoBody.copy(color = Ink.I100),
-            inlineCode = MonoBody.copy(color = Ink.White, fontSize = 13.sp),
-            quote = body.copy(color = Ink.I300),
-            paragraph = body,
-            ordered = body,
-            bullet = body,
-            list = body,
-            textLink = TextLinkStyles(
-                style = SpanStyle(color = Ink.White, textDecoration = TextDecoration.Underline),
-                pressedStyle = SpanStyle(color = Ink.I300, textDecoration = TextDecoration.Underline),
-            ),
-            table = body.copy(fontSize = 14.sp, lineHeight = 20.sp),
-        ),
-        // Cells at the library's 160 dp would push a 3-column table past a phone's width into a horizontal scroll
-        // with no affordance (the last column looked clipped); 110 dp keeps three columns on screen and the wrapping
-        // rows below make long descriptions readable instead of ellipsised.
-        dimens = markdownDimens(codeBackgroundCornerSize = Radii.row, tableCellWidth = 110.dp, tableCellPadding = 12.dp),
-        components = markdownComponents(
-            codeFence = { model ->
-                MarkdownCodeFence(model.content, model.node) { code, language, _ -> MonoCodeBlock(code, language) }
-            },
-            codeBlock = { model ->
-                MarkdownCodeBlock(model.content, model.node) { code, language, _ -> MonoCodeBlock(code, language) }
-            },
-            table = { model ->
-                MarkdownTable(
-                    model.content, model.node, model.typography.table,
-                    headerBlock = { content, header, width, style -> MarkdownTableHeader(content, header, width, style, maxLines = 3) },
-                    rowBlock = { content, row, width, style -> MarkdownTableRow(content, row, width, style, verticalAlignment = Alignment.Top, maxLines = Int.MAX_VALUE) },
-                )
-            },
-        ),
+    val uriHandler = LocalUriHandler.current
+    val style = remember {
+        markdownStyle {
+            paragraph {
+                fontSize = 16.sp
+                lineHeight = 24.sp
+                fontFamily = Typography.bodyLarge.fontFamily
+                color = Ink.I100
+                marginBottom = 10.dp
+            }
+            h1 {
+                fontSize = 22.sp
+                lineHeight = 28.sp
+                fontWeight = FontWeight.SemiBold
+                color = Ink.White
+                marginBottom = 8.dp
+            }
+            h2 {
+                fontSize = 19.sp
+                lineHeight = 25.sp
+                fontWeight = FontWeight.SemiBold
+                color = Ink.White
+                marginBottom = 8.dp
+            }
+            h3 {
+                fontSize = 16.sp
+                lineHeight = 22.sp
+                fontWeight = FontWeight.SemiBold
+                color = Ink.White
+                marginBottom = 6.dp
+            }
+            h4 {
+                fontSize = 15.sp
+                lineHeight = 21.sp
+                fontWeight = FontWeight.SemiBold
+                color = Ink.I100
+            }
+            h5 {
+                color = Ink.White
+                fontWeight = FontWeight.SemiBold
+            }
+            h6 {
+                color = Ink.I300
+                fontWeight = FontWeight.Medium
+            }
+            list {
+                fontSize = 16.sp
+                lineHeight = 23.sp
+                color = Ink.I100
+                bulletColor = Ink.I300
+                markerColor = Ink.I300
+                marginBottom = 8.dp
+            }
+            taskList {
+                checkedColor = Ink.White
+                borderColor = Ink.I500
+                checkmarkColor = Ink.Pitch
+                checkedTextColor = Ink.I500
+            }
+            blockquote {
+                fontSize = 15.sp
+                lineHeight = 22.sp
+                color = Ink.I300
+                borderColor = Ink.I500
+                backgroundColor = Ink.I900
+                cornerRadius = Radii.row
+                padding = 12.dp
+                marginBottom = 10.dp
+            }
+            codeBlock {
+                fontSize = 13.sp
+                lineHeight = 20.sp
+                color = Ink.I100
+                backgroundColor = Ink.I900
+                borderColor = whiteA(0.08f)
+                borderWidth = 1.dp
+                cornerRadius = Radii.row
+                padding = 14.dp
+                marginBottom = 12.dp
+            }
+            code {
+                color = Ink.White
+                backgroundColor = whiteA(0.10f)
+                borderColor = whiteA(0.08f)
+            }
+            link {
+                color = Ink.White
+                textDecoration = TextDecoration.Underline
+            }
+            strong { color = Ink.White }
+            table {
+                fontSize = 14.sp
+                lineHeight = 20.sp
+                color = Ink.I100
+                headerTextColor = Ink.White
+                headerBackgroundColor = whiteA(0.07f)
+                rowEvenBackgroundColor = Ink.I900
+                rowOddBackgroundColor = Ink.Pitch
+                borderColor = whiteA(0.12f)
+                cornerRadius = Radii.row
+                cellPaddingHorizontal = 10.dp
+                cellPaddingVertical = 8.dp
+                marginBottom = 12.dp
+            }
+            image {
+                height = 220.dp
+                cornerRadius = Radii.row
+                marginBottom = 10.dp
+            }
+            thematicBreak {
+                color = whiteA(0.12f)
+                marginTop = 14.dp
+                marginBottom = 14.dp
+            }
+            math {
+                fontSize = 20.sp
+                color = Ink.I100
+                backgroundColor = Ink.I900
+                padding = 12.dp
+                marginBottom = 10.dp
+            }
+            inlineMath { color = Ink.I100 }
+        }
+    }
+
+    EnrichedMarkdownText(
+        markdown = chunk,
         modifier = Modifier.fillMaxWidth(),
+        style = style,
+        options = MarkdownOptions(
+            admonitions = true,
+            superscript = true,
+            subscript = true,
+            highlight = true,
+        ),
+        selectable = true,
+        codeBlockLayout = CodeBlockLayout.Scrollable,
+        plugins = listOf(LatexMathPlugin),
+        onLinkClick = { url -> runCatching { uriHandler.openUri(url) } },
     )
-}
-
-/** Code card: language bar with a copy action, hairline seam, horizontally scrolling mono code. */
-@Composable
-fun MonoCodeBlock(code: String, language: String?, modifier: Modifier = Modifier) {
-    val shape = RoundedCornerShape(Radii.row)
-    val context = LocalContext.current
-    val trimmed = code.trimEnd('\n')
-    Column(
-        modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(Ink.I900)
-            .border(1.dp, whiteA(0.08f), shape),
-    ) {
-        Row(
-            Modifier.fillMaxWidth().background(whiteA(0.03f)).padding(start = 14.dp, end = 6.dp, top = 3.dp, bottom = 3.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                language?.trim()?.takeIf { it.isNotBlank() } ?: "text",
-                style = RowMeta.copy(fontFamily = MonoBody.fontFamily),
-                color = Ink.I500,
-                modifier = Modifier.weight(1f),
-            )
-            CopyChip(onCopy = { copyToClipboard(context, trimmed, "Code") })
-        }
-        Hairline()
-        Box(Modifier.horizontalScroll(rememberScrollState())) {
-            Text(trimmed, style = MonoBody, color = Ink.I100, softWrap = false, modifier = Modifier.padding(14.dp))
-        }
-    }
-}
-
-/** "Copy" -> "Copied" for 1.6 s; the system clipboard overlay on API 33+ is the only other feedback. */
-@Composable
-private fun CopyChip(onCopy: () -> Unit) {
-    var copied by remember { mutableStateOf(false) }
-    val haptics = rememberHaptics()
-    LaunchedEffect(copied) { if (copied) { delay(1_600); copied = false } }
-    Row(
-        Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                role = Role.Button,
-            ) { haptics.tap(); onCopy(); copied = true }
-            .padding(horizontal = 8.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Icon(
-            if (copied) Lucide.Check else Lucide.Copy,
-            contentDescription = S.copyCode,
-            Modifier.size(12.dp),
-            tint = if (copied) Ink.White else Ink.I500,
-        )
-        Text(if (copied) S.copied else S.copy, style = RowMeta, color = if (copied) Ink.White else Ink.I500)
-    }
 }
 
 /**
@@ -214,6 +196,7 @@ object MarkdownChunker {
         // A plain toggle would flip on such lines and glue the rest of the answer into one re-parsed chunk.
         var fenceChar: Char? = null
         var fenceLen = 0
+        var mathBlock = false
         val lines = source.split("\n")
 
         fun flush() {
@@ -238,7 +221,12 @@ object MarkdownChunker {
                 }
                 // Otherwise ordinary content (inside a fence, or inline code text).
             }
-            if (trimmed.isEmpty() && fenceChar == null) {
+            if (fenceChar == null && trimmed == "\$\$") {
+                mathBlock = !mathBlock
+                current.add(line)
+                continue
+            }
+            if (trimmed.isEmpty() && fenceChar == null && !mathBlock) {
                 val prevIsItem = current.lastOrNull()?.let(::isListItem) ?: false
                 var nextIsItem = false
                 for (i in (index + 1) until lines.size) {

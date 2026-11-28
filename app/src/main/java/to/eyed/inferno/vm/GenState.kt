@@ -11,6 +11,7 @@ sealed interface GenState {
     data class Streaming(val text: String, val reasoning: String, val tokPerSec: Float, val tokens: Int, val thinkingMs: Long) : GenState
     data object Trimming : GenState                                   // ContextManager dropping old turns
     /** The model is summarizing older turns (ContextPolicy.COMPACT / "Compact now"); Stop cancels and leaves the chat untouched. */
+    data class Researching(val label: String) : GenState
     data object Compacting : GenState
     data class Error(val message: String) : GenState
 }

@@ -58,7 +58,7 @@ object S {
     const val contextAlmostFull = "Context is almost full"
     const val trimOlderMessages = "Trim older messages"
     const val answerComplete = "Answer complete"
-    const val stopped = "stopped"
+    const val stopped = "Stopped..."
     const val interrupted = "interrupted"
     const val finishCurrentAnswer = "Finish the current answer first"
     const val couldNotReadImage = "Couldn't read that image"

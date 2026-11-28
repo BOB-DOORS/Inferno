@@ -1,13 +1,17 @@
 package to.eyed.inferno.ui.chat
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -26,7 +30,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -37,6 +40,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -135,32 +140,94 @@ fun ReasoningPanel(reasoning: String, live: Boolean, thinkingMs: Long, modifier:
 @Composable
 fun ThinkingIndicator(gen: GenState, modifier: Modifier = Modifier, tokenWords: Boolean = true) {
     when (gen) {
-        is GenState.Prefill -> {
-            var shown by remember { mutableStateOf(false) }
-            LaunchedEffect(Unit) { delay(250); shown = true }
-            if (!shown) return
-            val label = when {
-                gen.encodingImage && gen.expectedMs > 0 -> "${S.readingImage} · ~${(gen.expectedMs + 999) / 1000} s"
-                gen.encodingImage -> S.readingImage
-                gen.total > 0 && tokenWords -> S.readingTokens(gen.total)
-                gen.total > 0 -> S.readingMessages
-                else -> S.preparing
-            }
-            Row(modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(label, style = Typography.bodyMedium, color = Ink.I300)
-                PulsingDots()
-            }
-        }
+        is GenState.Prefill -> ActivityStatus(
+            label = if (gen.encodingImage) "Processing image" else "Processing context",
+            modifier = modifier,
+        )
         is GenState.Thinking -> ReasoningPanel(gen.reasoning, live = true, thinkingMs = gen.thinkingMs, modifier = modifier)
         is GenState.Streaming -> if (gen.text.isBlank()) {
             Column(modifier) {
                 if (gen.reasoning.isNotBlank()) ReasoningPanel(gen.reasoning, live = false, thinkingMs = gen.thinkingMs, modifier = Modifier.padding(bottom = 10.dp))
-                LoadingIndicator(Modifier.size(24.dp), color = Ink.White)
+                ActivityStatus("Generating response")
             }
         }
         GenState.Trimming -> QuietNotice(S.trimmingOlder, modifier)
+        is GenState.Researching -> ActivityStatus(gen.label, modifier)
         GenState.Compacting -> CompactingIndicator(modifier)
         else -> Unit
+    }
+}
+
+/** Branded, non-Material activity state: two counter-rotating arcs around a quiet core. */
+@Composable
+private fun ActivityStatus(label: String, modifier: Modifier = Modifier) {
+    Row(
+        modifier.padding(vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(11.dp),
+    ) {
+        InfernoLoader(Modifier.size(25.dp))
+        Text(
+            label,
+            style = Typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+            color = Ink.I300,
+        )
+    }
+}
+
+/** Compact dual-orbit loader; monochrome and motion-accessible. */
+@Composable
+private fun InfernoLoader(modifier: Modifier = Modifier) {
+    val animate = animationsEnabled()
+    val transition = rememberInfiniteTransition(label = "infernoLoader")
+    val rotation by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = if (animate) 360f else 0f,
+        animationSpec = infiniteRepeatable(tween(1_450, easing = LinearEasing)),
+        label = "infernoRotation",
+    )
+    val counterRotation by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = if (animate) -360f else 0f,
+        animationSpec = infiniteRepeatable(tween(2_050, easing = LinearEasing)),
+        label = "infernoCounterRotation",
+    )
+
+    Canvas(modifier.clearAndSetSemantics {}) {
+        val diameter = size.minDimension
+        val inset = diameter * 0.13f
+        val arcSize = diameter - inset * 2f
+        val stroke = diameter * 0.095f
+        drawCircle(color = Ink.I700, radius = diameter * 0.105f, center = center)
+        drawArc(
+            color = Ink.I700,
+            startAngle = -90f,
+            sweepAngle = 360f,
+            useCenter = false,
+            topLeft = androidx.compose.ui.geometry.Offset(inset, inset),
+            size = androidx.compose.ui.geometry.Size(arcSize, arcSize),
+            style = Stroke(width = stroke, cap = StrokeCap.Round),
+        )
+        drawArc(
+            color = Ink.White,
+            startAngle = rotation - 90f,
+            sweepAngle = 112f,
+            useCenter = false,
+            topLeft = androidx.compose.ui.geometry.Offset(inset, inset),
+            size = androidx.compose.ui.geometry.Size(arcSize, arcSize),
+            style = Stroke(width = stroke, cap = StrokeCap.Round),
+        )
+        val innerInset = inset * 1.85f
+        val innerSize = diameter - innerInset * 2f
+        drawArc(
+            color = Ink.I300,
+            startAngle = counterRotation + 95f,
+            sweepAngle = 48f,
+            useCenter = false,
+            topLeft = androidx.compose.ui.geometry.Offset(innerInset, innerInset),
+            size = androidx.compose.ui.geometry.Size(innerSize, innerSize),
+            style = Stroke(width = stroke * 0.72f, cap = StrokeCap.Round),
+        )
     }
 }
 

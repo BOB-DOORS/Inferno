@@ -29,6 +29,8 @@ import to.eyed.inferno.models.ModelDownloader
 import to.eyed.inferno.models.ModelFiles
 import to.eyed.inferno.models.ModelRepository
 import to.eyed.inferno.sd.ImageEngine
+import to.eyed.inferno.research.ResearchEngine
+import to.eyed.inferno.research.ResearchUrlPolicy
 import java.util.concurrent.TimeUnit
 
 /**
@@ -61,6 +63,15 @@ class AppContainer(app: Application) {
         .readTimeout(60, TimeUnit.SECONDS)
         .build()
     val downloader = ModelDownloader(okHttp, modelFiles)
+    private val researchHttp = OkHttpClient.Builder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(12, TimeUnit.SECONDS)
+        .callTimeout(20, TimeUnit.SECONDS)
+        .dns { hostname -> ResearchUrlPolicy.lookupPublicAddresses(hostname) }
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .build()
+    internal val research = ResearchEngine(app, researchHttp)
 
     /** ModelRepository's view of the text engine (delete/deleteAll never pull the file from under a live model). */
     private val engineAccess = object : EngineAccess {

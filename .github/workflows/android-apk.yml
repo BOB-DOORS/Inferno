@@ -1,0 +1,97 @@
+name: Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/**"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout with native submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up JDK 17 for Kotlin compilation
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up JDK 25 for the Gradle daemon
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+
+      - name: Install Android native toolchains
+        run: |
+          sdkmanager "platforms;android-37.0" "platforms;android-37.1" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;4.1.2"
+          yes | sdkmanager --licenses
+
+      # CI supplies both required JDKs directly. Skip Foojay's settings plugin here so the build
+      # does not depend on resolving a toolchain-download plugin when JDK 25 is already installed.
+      - name: Configure installed JDK toolchains
+        run: |
+          sed -i '/org.gradle.toolchains.foojay-resolver-convention/d' settings.gradle.kts
+          echo "GRADLE_OPTS=-Dorg.gradle.java.installations.paths=$JAVA_HOME_17_X64,$JAVA_HOME_25_X64" >> "$GITHUB_ENV"
+
+      - name: Configure Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run JVM regression tests
+        shell: bash
+        run: |
+          for attempt in 1 2; do
+            if ./gradlew --no-daemon --refresh-dependencies :app:testDebugUnitTest --stacktrace; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 1 ]; then
+              echo "Gradle dependency resolution failed; retrying once with refreshed metadata."
+              sleep 10
+            fi
+          done
+          exit 1
+
+      - name: Assemble debug APK
+        shell: bash
+        run: |
+          for attempt in 1 2; do
+            if ./gradlew --no-daemon :app:assembleDebug --stacktrace; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 1 ]; then
+              echo "APK assembly failed; retrying once."
+              sleep 10
+            fi
+          done
+          exit 1
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: inferno-agentic-research-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14

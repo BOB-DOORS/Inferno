@@ -1,5 +1,7 @@
 pluginManagement {
     repositories {
+        // Resolve Kotlin compiler/plugin markers from the canonical Plugin Portal first.
+        gradlePluginPortal()
         google {
             content {
                 includeGroupByRegex("com\\.android.*")
@@ -8,7 +10,6 @@ pluginManagement {
             }
         }
         mavenCentral()
-        gradlePluginPortal()
     }
 }
 plugins {

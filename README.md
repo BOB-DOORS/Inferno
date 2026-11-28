@@ -1,7 +1,7 @@
 # Inferno
 
-Private AI that runs entirely on your Android phone. Chat with vision-capable language models, ask questions
-about photos, and generate images, all on the device's CPU. Nothing leaves the phone.
+Private AI for Android. Chat with vision-capable language models, ask questions about photos, and generate images
+on-device. Agentic web research is always available; the local model chooses when public-web evidence is useful. Search queries and requested public URLs go directly to public websites, while chat history and model prompts stay on-device.
 
 <p align="center">
   <img src="app/src/main/ic_launcher-playstore.png" width="96" alt="Inferno logo">
@@ -18,12 +18,30 @@ about photos, and generate images, all on the device's CPU. Nothing leaves the p
 * **Three experience levels.** Normal shows only what a consumer needs; Power user adds context, prompt and
   sampling controls; Developer exposes engine internals and timings.
 * **Works in the background.** Answers and images keep generating when you switch apps.
+* **Always-available agentic web research.** The local model decides when to search, open pages, extract product metadata,
+  compare sources and collect relevant images. JavaScript-rendered app shells use a fresh, isolated AndroidX WebKit
+  profile only when static HTML is insufficient. Every page resource is fetched through the same DNS-validated,
+  robots-aware OkHttp client as native research; Chromium does not perform direct HTTP requests. Public-page HTML and
+  robots rules are compressed into a bounded SQLite cache. It also maintains its own persistent SQLite FTS4
+  web index and crawl frontier: search results, sitemaps and links from opened pages seed a respectful incremental
+  crawler. The local index stores up to 1,500 public text pages; each search crawls at most two queued pages so the
+  phone does not try to mirror the entire Internet. DuckDuckGo, Bing and Google are queried concurrently; Yahoo and compact-keyword retries broaden discovery when coverage is thin. Federated providers also cover pages not yet indexed locally. Results are re-ranked on-device before presentation. No API key or cloud model is required.
 
 ## Privacy
 
-Everything runs offline. The only network use is downloading model files when you ask for them. There is no
-telemetry, no analytics, no account, and no cloud fallback. Chats, images, and models stay in the app's private
-storage and are excluded from Android backups and device transfers.
+Inference, chat history, image generation and storage remain on-device. Agentic web research is always available, but the local model decides per turn whether searching improves the answer. When it searches, focused queries and requested page URLs are sent to public websites; chat
+history, system prompts, attachments and generated model output are not uploaded to a cloud AI. Page responses are
+processed locally. A private compressed SQLite cache stores public page HTML for up to 6 hours and robots.txt rules
+for up to 24 hours, with an 18 MB total size cap; old entries are evicted automatically. JavaScript pages run in a
+new WebKit profile isolated from the app's default WebView profile; that profile is deleted after capture (WebKit may
+complete physical data cleanup asynchronously). Cookies and authorization headers are never forwarded by the
+resource proxy. The WebView uses a restrictive content policy, blocks forms, frames, workers, WebRTC and beacon
+requests, and only supports GET resources; each resource and redirect is checked against public-address and
+robots.txt policies. Devices without WebKit multi-profile support skip JavaScript rendering and use static extraction
+only. There is no telemetry, analytics, account or cloud
+inference. The local web index stores only public pages and pending public URLs (up to 1,500 indexed pages
+and 3,000 queued URLs); it can be rebuilt by searching again. Chats, images and models stay in private app storage
+and are excluded from Android backups and device transfers.
 
 ## Requirements
 
