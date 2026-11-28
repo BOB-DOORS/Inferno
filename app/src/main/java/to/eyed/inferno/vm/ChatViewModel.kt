@@ -435,7 +435,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
             // <search> (or a legacy marker) is buffered. A batch of commands is executed together, then
             // one final generation produces the user-facing answer. Greetings never pay an extra model pass.
             val workspace = ResearchWorkspace()
-            val researchEnabled = settings.webResearchEnabled
+            val researchEnabled = true
             var activeMessages = messages
             var firstPass = forcedResearchMode == null
             if (forcedResearchMode != null) {
