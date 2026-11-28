@@ -32,7 +32,6 @@ import to.eyed.inferno.data.SettingsState
 import to.eyed.inferno.data.ExperienceLevel
 import to.eyed.inferno.data.devBenchmark
 import to.eyed.inferno.data.powerUser
-import to.eyed.inferno.engine.Calibration
 import to.eyed.inferno.engine.InferenceEngine
 import to.eyed.inferno.engine.ContextManager
 import to.eyed.inferno.engine.CpuTopology
@@ -116,7 +115,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
     // Declared before init: firstRunAutoLoad() runs synchronously on Main.immediate when prefs and the disk scan have
     // already landed (Application created the container long before this ViewModel), and its selectAndLoad() writes here.
     private val _loadInProgress = MutableStateFlow(false)
-    /** True from selectAndLoad() until its plan/load/calibration finished or failed (the engine is still Idle while planning). */
+    /** True from selectAndLoad() until its plan/load finished or failed (the engine is still Idle while planning). */
     val loadInProgress: StateFlow<Boolean> = _loadInProgress.asStateFlow()
     /** Set after a successful load until ChatViewModel starts the first turn (crash-loop guard, 5.5). */
     @Volatile private var firstTurnPending = false
@@ -230,7 +229,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
 
     // ---- model lifecycle -------------------------------------------------------------------------------------
 
-    /** Plan + load (+ calibration bench on the very first load of a model). Sets selectedModelId and the crash guard. */
+    /** Plan + load without a startup benchmark. Sets selectedModelId and the crash guard. */
     fun selectAndLoad(modelId: String) {
         val local = c.models.local(modelId) ?: run { notice(S.notDownloaded(c.models.displayName(modelId))); return }
         // Join the previous load before arming the new guard, so its cancellation clear cannot land after our set.
