@@ -438,6 +438,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
             val researchEnabled = true
             var activeMessages = messages
             var researchRounds = 0
+            var allowResearchDecisions = forcedResearchMode == null
             if (forcedResearchMode != null) {
                 val requestedText = messages.lastOrNull { it.role == "user" }?.content.orEmpty()
                     .substringAfter("Research this answer:\n", "")
@@ -508,7 +509,8 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
             var completed = false
             while (!completed) {
                 val remainingResearchCalls = (MAX_RESEARCH_CALLS - workspace.toolCalls).coerceAtLeast(0)
-                val canRequestResearch = researchEnabled && researchRounds < MAX_RESEARCH_ROUNDS && remainingResearchCalls > 0
+                val canRequestResearch = allowResearchDecisions && researchEnabled &&
+                    researchRounds < MAX_RESEARCH_ROUNDS && remainingResearchCalls > 0
                 val parser = if (canRequestResearch) {
                     ResearchCommandParser(maxCommands = minOf(remainingResearchCalls, MAX_RESEARCH_CALLS_PER_ROUND))
                 } else null
@@ -596,6 +598,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
 
                 if (runTextFallback) {
                     // A malformed or obsolete marker is not a search request. Retry directly in answer mode.
+                    allowResearchDecisions = false
                     val finalSystem = ResearchPrompt.compose(system, workspace, false)
                     val content = messages.filterNot { it.role == "system" }
                     val refit = c.contextManager.fit(finalSystem, content, promptImages, nCtx, reserve, 0)
