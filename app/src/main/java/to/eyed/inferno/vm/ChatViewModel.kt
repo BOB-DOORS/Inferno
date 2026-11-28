@@ -437,7 +437,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
             val workspace = ResearchWorkspace()
             val researchEnabled = true
             var activeMessages = messages
-            var firstPass = forcedResearchMode == null
+            var researchRounds = 0
             if (forcedResearchMode != null) {
                 val requestedText = messages.lastOrNull { it.role == "user" }?.content.orEmpty()
                     .substringAfter("Research this answer:\n", "")
@@ -462,7 +462,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
                         buildJsonObject { put("query", query.take(MAX_FORCED_RESEARCH_QUERY_CHARS)) },
                     )
                 }
-                calls.forEach { workspace.recordCall() }
+                calls.forEach(workspace::recordCall)
                 setGen(
                     conversationId,
                     GenState.Researching(
@@ -507,7 +507,11 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
 
             var completed = false
             while (!completed) {
-                val parser = if (researchEnabled && firstPass) ResearchCommandParser() else null
+                val remainingResearchCalls = (MAX_RESEARCH_CALLS - workspace.toolCalls).coerceAtLeast(0)
+                val canRequestResearch = researchEnabled && researchRounds < MAX_RESEARCH_ROUNDS && remainingResearchCalls > 0
+                val parser = if (canRequestResearch) {
+                    ResearchCommandParser(maxCommands = minOf(remainingResearchCalls, MAX_RESEARCH_CALLS_PER_ROUND))
+                } else null
                 var commandBatch: List<ResearchToolCall> = emptyList()
                 var runCommandBatch = false
                 var runTextFallback = false
@@ -547,7 +551,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
                         }
                         is GenerationEvent.Done -> {
                             parser?.finish()?.takeIf { it.isNotEmpty() }?.let(stream::token)
-                            commandBatch = parser?.calls.orEmpty().take(MAX_RESEARCH_CALLS)
+                            commandBatch = parser?.calls.orEmpty().take(remainingResearchCalls)
                             if (commandBatch.isNotEmpty()) {
                                 runCommandBatch = true
                             } else if (parser?.needsTextFallback == true && stream.textStr.isBlank()) {
@@ -592,16 +596,17 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
 
                 if (runTextFallback) {
                     // A malformed or obsolete marker is not a search request. Retry directly in answer mode.
-                    firstPass = false
-                    val finalSystem = ResearchPrompt.compose(system, workspace, false)
+                    val canContinueResearch = researchEnabled && researchRounds < MAX_RESEARCH_ROUNDS &&
+                        workspace.toolCalls < MAX_RESEARCH_CALLS
+                    val nextSystem = ResearchPrompt.compose(system, workspace, canContinueResearch)
                     val content = messages.filterNot { it.role == "system" }
-                    val refit = c.contextManager.fit(finalSystem, content, promptImages, nCtx, reserve, 0)
+                    val refit = c.contextManager.fit(nextSystem, content, promptImages, nCtx, reserve, 0)
                     activeMessages = refit.messages
                     promptImages = refit.images
                     setGen(conversationId, GenState.Prefill(0, 0, false, expectedEncodeMs))
                 } else if (runCommandBatch) {
-                    firstPass = false
-                    commandBatch.forEach { workspace.recordCall() }
+                    commandBatch.forEach(workspace::recordCall)
+                    researchRounds++
                     setGen(
                         conversationId,
                         GenState.Researching(
@@ -840,7 +845,9 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
         const val NO_CHAT = ""
         const val MAX_ATTACHMENTS = 2
         const val MAX_PROMPT_IMAGES = 8
-        const val MAX_RESEARCH_CALLS = 5
+        const val MAX_RESEARCH_CALLS = 8
+        const val MAX_RESEARCH_ROUNDS = 3
+        const val MAX_RESEARCH_CALLS_PER_ROUND = 5
         const val MAX_FORCED_RESEARCH_QUERY_CHARS = 260
         const val MAX_FORCED_WEB_QUERIES = 3
         const val MAX_MESSAGE_RESEARCH_CHARS = 3_200
