@@ -91,24 +91,24 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
             val ddg = async { searchProvider { searchDuckDuckGo(queryWithDate) } }
             val bing = async { searchProvider { searchBing(queryWithDate) } }
             val google = async { searchProvider { searchGoogle(queryWithDate) } }
-            dedupe(ddg.await() + bing.await() + google.await())
+            dedupe(ddg.await() + bing.await() + google.await(), MAX_MERGED_RESULTS)
         }
         // Local matches supplement the SERPs; they must not suppress fallback when web providers are thin.
         if (providerHits.size < MIN_SEARCH_RESULTS) {
-            providerHits = dedupe(providerHits + searchProvider { searchYahoo(queryWithDate) })
+            providerHits = dedupe(providerHits + searchProvider { searchYahoo(queryWithDate) }, MAX_MERGED_RESULTS)
         }
         if (providerHits.size < MIN_SEARCH_RESULTS) {
-            val broadQuery = broadenQuery(query)
+            val broadQuery = ResearchRanking.broadenQuery(query)
             if (broadQuery.isNotBlank() && broadQuery != query) {
                 val expanded = coroutineScope {
                     val ddg = async { searchProvider { searchDuckDuckGo(broadQuery) } }
                     val google = async { searchProvider { searchGoogle(broadQuery) } }
-                    dedupe(ddg.await() + google.await())
+                    dedupe(ddg.await() + google.await(), MAX_MERGED_RESULTS)
                 }
-                providerHits = dedupe(providerHits + expanded)
+                providerHits = dedupe(providerHits + expanded, MAX_MERGED_RESULTS)
             }
         }
-        var hits = rankAndDiversify(query, dedupe(localBeforeCrawl + providerHits))
+        var hits = rankAndDiversify(query, dedupe(localBeforeCrawl + providerHits, MAX_MERGED_RESULTS))
 
         // Search results seed a persistent local crawl. A small batch is processed in this foreground
         // request; the remaining frontier survives process death and is drained by later searches.
@@ -116,7 +116,7 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
         val localAfterCrawl = localIndex.search(query, MAX_SEARCH_RESULTS).map { hit ->
             SearchHit(hit.title, hit.url, hit.snippet)
         }
-        hits = rankAndDiversify(query, dedupe(hits + localAfterCrawl))
+        hits = rankAndDiversify(query, dedupe(hits + localAfterCrawl, MAX_MERGED_RESULTS))
 
         val pages = coroutineScope {
             hits.take(MAX_AUTO_OPEN_RESULTS).map { hit -> async { openPageSafely(hit.url) } }
@@ -254,8 +254,8 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
         }
 
     private fun rankAndDiversify(query: String, hits: List<SearchHit>): List<SearchHit> {
-        val ranked = dedupe(hits).sortedWith(
-            compareByDescending<SearchHit> { relevanceScore(query, it.title, it.snippet) }
+        val ranked = dedupe(hits, MAX_MERGED_RESULTS).sortedWith(
+            compareByDescending<SearchHit> { ResearchRanking.relevanceScore(query, it.title, it.snippet) }
                 .thenByDescending { it.publishedAt.orEmpty() }
                 .thenByDescending { it.snippet.length },
         )
@@ -956,47 +956,16 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
         val days = when (freshness.lowercase(Locale.ROOT)) { "day" -> 1; "week" -> 7; "month" -> 30; "year" -> 365; else -> 0 }
         return if (days == 0) query else "$query after:${java.time.LocalDate.now(java.time.ZoneOffset.UTC).minusDays(days.toLong())}"
     }
-    private fun broadenQuery(query: String): String {
-        val stopWords = setOf(
-            "the", "and", "for", "with", "from", "that", "this", "what", "when", "where", "which",
-            "who", "how", "why", "are", "was", "were", "can", "could", "would", "should", "about",
-            "please", "find", "search", "best", "most", "more", "less", "all", "some",
-            "de", "da", "do", "das", "dos", "um", "uma", "uns", "umas", "para", "com", "por",
-            "que", "qual", "quais", "como", "onde", "quando", "melhor", "mais", "menos",
-        )
-        return query.lowercase(Locale.ROOT)
-            .split(Regex("[^\\p{L}\\p{N}]+"))
-            .filter { it.length > 2 && it !in stopWords }
-            .distinct()
-            .take(9)
-            .joinToString(" ")
-    }
-
-    private fun relevanceScore(query: String, title: String, snippet: String): Double {
-        val terms = query.lowercase(Locale.ROOT)
-            .split(Regex("[^\\p{L}\\p{N}]+"))
-            .filter { it.length > 2 }
-            .distinct()
-        if (terms.isEmpty()) return 0.0
-        val titleText = title.lowercase(Locale.ROOT)
-        val snippetText = snippet.lowercase(Locale.ROOT)
-        val titleTerms = titleText.split(Regex("[^\\p{L}\\p{N}]+")).toSet()
-        val snippetTerms = snippetText.split(Regex("[^\\p{L}\\p{N}]+")).toSet()
-        val titleHits = terms.count { it in titleTerms }
-        val snippetHits = terms.count { it in snippetTerms }
-        val coverage = terms.count { it in titleTerms || it in snippetTerms }.toDouble() / terms.size
-        val phrase = query.trim().lowercase(Locale.ROOT).takeIf { it.length >= 6 && titleText.contains(it) }
-        val titleCoverage = titleHits.toDouble() / terms.size
-        return titleHits * 3.2 + snippetHits * 0.8 + coverage * 4.0 +
-            titleCoverage * 2.5 + if (phrase != null) 3.5 else 0.0
-    }
-
     private fun lexicalScore(query: String, text: String): Int {
         val terms = query.lowercase(Locale.ROOT).split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 2 }.toSet()
         return text.lowercase(Locale.ROOT).split(Regex("[^\\p{L}\\p{N}]+")).count { it in terms }
     }
-    private fun dedupe(hits: List<SearchHit>) = hits.filter { it.title.isNotBlank() && safeUrl(it.url) != null }
-        .distinctBy { normalizeUrl(it.url) }.take(MAX_SEARCH_RESULTS)
+    private fun dedupe(hits: List<SearchHit>, limit: Int = MAX_SEARCH_RESULTS) =
+        hits.asSequence()
+            .filter { it.title.isNotBlank() && safeUrl(it.url) != null }
+            .distinctBy { normalizeUrl(it.url) }
+            .take(limit.coerceIn(1, MAX_MERGED_RESULTS))
+            .toList()
     private fun normalizeUrl(raw: String) = raw.toHttpUrlOrNull()?.newBuilder()
         ?.removeAllQueryParameters("utm_source")?.removeAllQueryParameters("utm_medium")
         ?.removeAllQueryParameters("utm_campaign")?.fragment(null)?.build()?.toString() ?: raw
@@ -1040,6 +1009,7 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
     companion object {
         private const val USER_AGENT = "InfernoResearch/1.0 (Android; respectful public-page reader)"
         private const val MAX_SEARCH_RESULTS = 10
+        private const val MAX_MERGED_RESULTS = 40
         private const val MAX_CRAWL_SEEDS = 8
         private const val MAX_SITEMAP_HOSTS = 2
         private const val MAX_SITEMAP_BYTES = 512_000
