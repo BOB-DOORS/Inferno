@@ -128,7 +128,7 @@ internal class ResearchEngine(context: Context, private val client: OkHttpClient
         hits.map { it.source() }.forEach { sources.putIfAbsent(it.url, it) }
         val (indexedPageCount, queuedPageCount) = localIndex.stats()
         val snippets = if (hits.isEmpty()) {
-            "No results were returned by DuckDuckGo, Bing, or Yahoo. A provider may be unavailable, rate-limiting this connection, or disallowing automated access in robots.txt."
+            "No results were returned by DuckDuckGo, Bing, Google or Yahoo. A provider may be unavailable, rate-limiting this connection, or disallowing automated access in robots.txt."
         } else hits.joinToString("\n\n") { hit ->
             buildString {
                 append(hit.title).append("\n").append(hit.url)
