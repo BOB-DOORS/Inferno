@@ -118,8 +118,22 @@ internal object ResearchPrompt {
             <search>{"tool":"search_web","queries":["first focused query","second focused query"]}</search>
             <search>{"tool":"search_news","arguments":{"query":"release date","freshness":"week"}}</search>
             A search_web block accepts query or a queries array. Other tools accept arguments appropriate to their name.
+            Tool selection:
+            - search_web: broad facts, specifications, documentation, comparisons and general discovery.
+            - search_news: recent events, releases, incidents, public updates and timelines.
+            - search_products: purchasable products, current prices, specifications and availability.
+            - search_images / search_videos: explicitly requested visual or video references.
+            - search_academic: papers, studies, scholarly evidence and DOI metadata.
+            - search_forums: practical experience, troubleshooting and community consensus.
+            - search_wiki: quick encyclopedia context; cross-check consequential claims elsewhere.
+            - search_repositories: public GitHub projects, source repositories and developer tools.
+            - search_places: real-world locations, venues and geographic entities.
+            - open_page / extract_product / find_in_page / follow_links: inspect an exact public URL or follow relevant references.
+            - compare_sources: reconcile collected evidence after the retrieval calls have completed.
             Supported tools: search_web, search_news, search_products, search_images, search_videos, search_academic,
-            search_forums, search_wiki, search_repositories, search_places, open_page, extract_product, find_in_page, follow_links, compare_sources. Separate unrelated facts into focused queries.
+            search_forums, search_wiki, search_repositories, search_places, open_page, extract_product, find_in_page, follow_links, compare_sources.
+            Use a queries array in search_web for alternative formulations of the same research question. For ambiguous or broad requests,
+            search different facets separately, but stay within five total command calls. Do not issue redundant searches.
             Never emit the old [INFERNO_TOOL] format, prose between command blocks, or a final answer in this pass.
             The app executes valid blocks together and asks once for the final answer.
 
