@@ -5,6 +5,7 @@ import java.util.Locale
 /** Lightweight, deterministic ranking helpers for the on-device metasearch pipeline. */
 internal object ResearchRanking {
     private val stopWords = setOf(
+        "a", "an", "as", "at", "by", "if", "in", "is", "it", "of", "on", "or", "to",
         "the", "and", "for", "with", "from", "that", "this", "what", "when", "where", "which",
         "who", "how", "why", "are", "was", "were", "can", "could", "would", "should", "about",
         "please", "find", "show", "tell", "give", "does", "did", "not", "into", "onto", "than",
@@ -23,7 +24,7 @@ internal object ResearchRanking {
      * while an exact phrase in a title receives a modest boost. This is deterministic and allocation-light.
      */
     fun relevanceScore(query: String, title: String, snippet: String): Double {
-        val terms = tokens(query).distinct()
+        val terms = tokens(query).filterNot(stopWords::contains).distinct()
         if (terms.isEmpty()) return 0.0
 
         val titleText = title.lowercase(Locale.ROOT)
@@ -45,7 +46,7 @@ internal object ResearchRanking {
 
     private fun tokens(value: String): List<String> = value.lowercase(Locale.ROOT)
         .split(TOKEN_SEPARATOR)
-        .filter { it.length > MIN_TOKEN_LENGTH }
+        .filter { it.length >= MIN_TOKEN_LENGTH }
 
     private const val MAX_QUERY_TERMS = 9
     private const val MIN_TOKEN_LENGTH = 2
