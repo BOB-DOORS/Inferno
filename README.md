@@ -25,8 +25,7 @@ on-device. Agentic web research is always available; the local model chooses whe
   robots rules are compressed into a bounded SQLite cache. It also maintains its own persistent SQLite FTS4
   web index and crawl frontier: search results, sitemaps and links from opened pages seed a respectful incremental
   crawler. The local index stores up to 1,500 public text pages; each search crawls at most two queued pages so the
-  phone does not try to mirror the entire Internet. DuckDuckGo, Bing and Google are queried concurrently; Yahoo and compact-keyword retries broaden discovery when coverage is thin. These providers remain fallbacks for
-  pages not yet indexed locally. No API key or cloud model is required.
+  phone does not try to mirror the entire Internet. DuckDuckGo, Bing and Google are queried concurrently; Yahoo and compact-keyword retries broaden discovery when coverage is thin. Federated providers also cover pages not yet indexed locally. No API key or cloud model is required.
 
 ## Privacy
 
