@@ -76,7 +76,7 @@ data class SettingsState(
     // chat
     val streamingAnimations: Boolean = true,
     val haptics: Boolean = true,
-    val webResearchEnabled: Boolean = false,
+    val webResearchEnabled: Boolean = true,
     // downloads
     val allowMeteredDownloads: Boolean = false, // Settings > Storage; when false a metered network requires a per-download confirm
     val notificationsAsked: Boolean = false,    // POST_NOTIFICATIONS was requested once (5.6 Root.kt); never asked again
