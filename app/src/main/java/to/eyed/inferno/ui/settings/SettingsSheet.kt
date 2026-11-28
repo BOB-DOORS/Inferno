@@ -199,7 +199,6 @@ private fun SettingsBody(appVm: AppViewModel, chatVm: ChatViewModel, onOpenBench
         CardDivider()
         ToggleRow(S.haptics, s.haptics, appVm::setHaptics, description = S.hapticsDesc)
         CardDivider()
-        ToggleRow("Web research", s.webResearchEnabled, appVm::setWebResearchEnabled, description = "Optional public-web searches. Queries and opened page URLs go to public websites; chats and model output stay on-device. Public page HTML is cached privately for up to 6 hours (robots rules for 24 hours), capped at 18 MB. Disabled by default.")
     }
 
     // ---- Storage (everyone) -------------------------------------------------------------------------------------
