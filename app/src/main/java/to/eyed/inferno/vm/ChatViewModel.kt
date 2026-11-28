@@ -596,11 +596,9 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
 
                 if (runTextFallback) {
                     // A malformed or obsolete marker is not a search request. Retry directly in answer mode.
-                    val canContinueResearch = researchEnabled && researchRounds < MAX_RESEARCH_ROUNDS &&
-                        workspace.toolCalls < MAX_RESEARCH_CALLS
-                    val nextSystem = ResearchPrompt.compose(system, workspace, canContinueResearch)
+                    val finalSystem = ResearchPrompt.compose(system, workspace, false)
                     val content = messages.filterNot { it.role == "system" }
-                    val refit = c.contextManager.fit(nextSystem, content, promptImages, nCtx, reserve, 0)
+                    val refit = c.contextManager.fit(finalSystem, content, promptImages, nCtx, reserve, 0)
                     activeMessages = refit.messages
                     promptImages = refit.images
                     setGen(conversationId, GenState.Prefill(0, 0, false, expectedEncodeMs))
@@ -625,9 +623,11 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
                     outputs.forEach(workspace::add)
                     comparisons.forEach { call -> workspace.add(c.research.execute(call, workspace)) }
 
-                    val finalSystem = ResearchPrompt.compose(system, workspace, false)
+                    val canContinueResearch = researchEnabled && researchRounds < MAX_RESEARCH_ROUNDS &&
+                        workspace.toolCalls < MAX_RESEARCH_CALLS
+                    val nextSystem = ResearchPrompt.compose(system, workspace, canContinueResearch)
                     val content = messages.filterNot { it.role == "system" }
-                    val refit = c.contextManager.fit(finalSystem, content, promptImages, nCtx, reserve, 0)
+                    val refit = c.contextManager.fit(nextSystem, content, promptImages, nCtx, reserve, 0)
                     activeMessages = refit.messages
                     promptImages = refit.images
                     setGen(conversationId, GenState.Prefill(0, 0, false, expectedEncodeMs))
