@@ -57,8 +57,7 @@ own copy of ggml) and 5 MB the language-model library.
   without multi-profile support the renderer skips JavaScript and static extraction remains available. Compressed page
   HTML and robots rules are stored in a separate bounded SQLite cache (18 MB total), with 6-hour and 24-hour TTLs.
   Robots `Allow`/`Disallow`, wildcard and end-anchor rules are applied before page fetches and after redirects.
-  No API key or cloud model is used. Public search queries and opened page URLs are sent to public websites only when
-  the user enables Web research; chat history and prompts are never uploaded to a cloud model. The first-party
+  No API key or cloud model is used. Web research is always available; the local model decides per turn whether to search. Discovery queries DuckDuckGo, Bing and Google concurrently, then uses Yahoo and keyword broadening when results are sparse. Public queries and opened page URLs are sent to public websites when a search is selected; chat history and prompts are never uploaded to a cloud model. The first-party
   local web index uses SQLite FTS4 with a persistent frontier, sitemap seeding and bounded link crawling. It retains
   up to 1,500 text pages and 3,000 queued URLs; at most two frontier pages are crawled per search. All page fetches
   still pass through the HTTPS-only URL/DNS guard, robots rules, redirect checks, response-size limits and per-host
