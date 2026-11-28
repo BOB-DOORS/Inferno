@@ -1,8 +1,7 @@
 # Inferno
 
 Private AI for Android. Chat with vision-capable language models, ask questions about photos, and generate images
-on-device. Optional web research can be enabled separately; it sends focused search queries and requested public URLs
-to public websites, but never sends chat history or model prompts to a cloud AI.
+on-device. Agentic web research is always available; the local model chooses when public-web evidence is useful. Search queries and requested public URLs go directly to public websites, while chat history and model prompts stay on-device.
 
 <p align="center">
   <img src="app/src/main/ic_launcher-playstore.png" width="96" alt="Inferno logo">
@@ -19,20 +18,19 @@ to public websites, but never sends chat history or model prompts to a cloud AI.
 * **Three experience levels.** Normal shows only what a consumer needs; Power user adds context, prompt and
   sampling controls; Developer exposes engine internals and timings.
 * **Works in the background.** Answers and images keep generating when you switch apps.
-* **Optional agentic web research.** The local model decides when to search, open pages, extract product metadata,
+* **Always-available agentic web research.** The local model decides when to search, open pages, extract product metadata,
   compare sources and collect relevant images. JavaScript-rendered app shells use a fresh, isolated AndroidX WebKit
   profile only when static HTML is insufficient. Every page resource is fetched through the same DNS-validated,
   robots-aware OkHttp client as native research; Chromium does not perform direct HTTP requests. Public-page HTML and
   robots rules are compressed into a bounded SQLite cache. It also maintains its own persistent SQLite FTS4
   web index and crawl frontier: search results, sitemaps and links from opened pages seed a respectful incremental
   crawler. The local index stores up to 1,500 public text pages; each search crawls at most two queued pages so the
-  phone does not try to mirror the entire Internet. DuckDuckGo, Bing and Yahoo remain discovery fallbacks for
+  phone does not try to mirror the entire Internet. DuckDuckGo, Bing and Google are queried concurrently; Yahoo and compact-keyword retries broaden discovery when coverage is thin. These providers remain fallbacks for
   pages not yet indexed locally. No API key or cloud model is required.
 
 ## Privacy
 
-Inference, chat history, image generation and storage remain on-device. Web research is disabled by default. When
-enabled, focused search queries and URLs of pages the local model asks to open are sent to public websites; chat
+Inference, chat history, image generation and storage remain on-device. Agentic web research is always available, but the local model decides per turn whether searching improves the answer. When it searches, focused queries and requested page URLs are sent to public websites; chat
 history, system prompts, attachments and generated model output are not uploaded to a cloud AI. Page responses are
 processed locally. A private compressed SQLite cache stores public page HTML for up to 6 hours and robots.txt rules
 for up to 24 hours, with an 18 MB total size cap; old entries are evicted automatically. JavaScript pages run in a
