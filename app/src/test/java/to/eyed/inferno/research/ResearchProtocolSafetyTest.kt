@@ -31,6 +31,27 @@ class ResearchProtocolSafetyTest {
         assertEquals("", ResearchWorkspace().modelContext())
     }
 
+
+    @Test
+    fun followUpPromptReceivesPreviousQueriesAndEvidence() {
+        val workspace = ResearchWorkspace()
+        workspace.recordCall(
+            ResearchToolCall(
+                "search_web",
+                JsonObject(mapOf("query" to JsonPrimitive("original query"))),
+            ),
+        )
+        workspace.add(ResearchOutput("Web search", "No relevant result was found."))
+
+        val prompt = ResearchPrompt.compose(null, workspace, toolsEnabled = true)
+
+        assertEquals(1, workspace.toolCalls)
+        assertTrue(prompt.contains("RESEARCH ACTIONS ALREADY TAKEN"))
+        assertTrue(prompt.contains("search_web: original query"))
+        assertTrue(prompt.contains("No relevant result was found."))
+        assertTrue(prompt.contains("Never repeat an already executed query"))
+    }
+
     @Test
     fun sourceAppendixDoesNotIncludeImageSearchOrigins() {
         val workspace = ResearchWorkspace()
