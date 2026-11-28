@@ -44,6 +44,11 @@ class ResearchRankingTest {
     }
 
     @Test
+    fun shortTechnicalTermsRemainSearchable() {
+        assertTrue(ResearchRanking.relevanceScore("AI assistant", "AI assistant model", "") > 0.0)
+    }
+
+    @Test
     fun rankingNeverReturnsNanForEmptyOrPunctuationQueries() {
         assertEquals(0.0, ResearchRanking.relevanceScore("!!!", "Nothing", "Nothing"), 0.0)
         assertTrue(ResearchRanking.relevanceScore("mobile", "", "").isFinite())
