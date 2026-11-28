@@ -287,8 +287,9 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
             loadedUseMmap = s.useMmap
             loadedGpuPref = s.gpu
             c.engine.setSampling(effectiveParams())
-            val cal = s.calibration[local.id]
-            if (cal == null) calibrate(local.id, loaded.loadMs) else c.engine.setCalibration(cal.copy(loadMs = loaded.loadMs))
+            // Never gate first model readiness on a native benchmark. Use saved measurements when available;
+            // catalog estimates remain the fallback until the user explicitly runs Bench.
+            s.calibration[local.id]?.let { c.engine.setCalibration(it.copy(loadMs = loaded.loadMs)) }
             c.prefs.setLoadAttempt(null)
             firstTurnPending = true
             when {
@@ -303,14 +304,6 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
             c.prefs.setLoadAttempt(null)
             notice(e.message ?: S.couldNotLoadModel)
         }
-    }
-
-    /** pp512/tg128 x1 on the first load of a model; the result drives the ADPF target and the meta-line estimate. */
-    private suspend fun calibrate(modelId: String, loadMs: Long) {
-        val r = c.engine.bench(nPrompt = 512, nGen = 128, reps = 1) { _, _ -> }
-        val cal = Calibration(ppTps = r.ppTps, tgTps = r.tgTps, loadMs = loadMs, at = System.currentTimeMillis())
-        c.prefs.setCalibration(modelId, cal)
-        c.engine.setCalibration(cal)
     }
 
     /** Re-plan and recreate the context for the loaded model (kv / ctx / fa / mmap changes). */
